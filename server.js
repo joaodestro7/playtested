@@ -138,8 +138,38 @@ async function steamApi(endpoint) {
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '150kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders(res, filePath) {
+      if (/\.(png|jpg|jpeg|webp|svg|ico)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+      } else if (/\.(css|js)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  })
+);
+
+// Prevent Cloudflare/proxies from ever caching auth or private user API responses
+app.use(['/auth', '/api/me', '/api/library', '/api/eligibility', '/api/review'], (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
+
+// Lightweight health check for systemd / Cloudflare / uptime monitors
+app.get('/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    ok: true,
+    uptimeSec: Math.round(process.uptime()),
+    games: db.games.length,
+    reviews: db.reviews.length,
+  });
+});
 
 // ============================================================================
 // AUTHENTICATION ROUTES: STEAM, XBOX LIVE, PLAYSTATION NETWORK
@@ -767,6 +797,7 @@ app.get('/api/me', (req, res) => {
 });
 
 app.get('/api/stats', (_req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=30');
   const validGames = db.games.filter(isValidGame);
   const reviewers = new Set(db.reviews.map((r) => `${r.platform}:${reviewOwnerId(r) || r.name}`));
   const totalHours = Math.round(db.reviews.reduce((sum, r) => sum + (Number(r.hours) || 0), 0));
@@ -823,6 +854,7 @@ app.get('/api/stats', (_req, res) => {
 });
 
 app.get('/api/games', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=15, s-maxage=30');
   const Q = req.query;
   const searchTerm = String(Q.q || '').toLowerCase().trim();
   const plat = PLATFORM_ORDER.includes(Q.platform) ? Q.platform : 'all';
@@ -1306,10 +1338,17 @@ app.delete('/api/review/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-process.on('SIGINT', () => {
-  save();
+function shutdown(signal) {
+  console.log(`Received ${signal}, flushing db.json cleanly...`);
+  try {
+    save();
+  } catch (err) {
+    console.error('Error saving db.json on shutdown:', err.message);
+  }
   process.exit(0);
-});
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 app.listen(PORT, () => {
   console.log(
