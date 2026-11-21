@@ -1,0 +1,12 @@
+{
+  "name": "playtested",
+  "version": "1.0.0",
+  "description": "Verified player-only game reviews weighted by real playtime. Zero critics, ever.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

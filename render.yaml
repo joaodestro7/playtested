@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: playtested
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MIN_HOURS
+        value: "2"
+      - key: BASE_URL
+        sync: false
+      - key: STEAM_API_KEY
+        sync: false
+      - key: XBOX_CLIENT_ID
+        sync: false
+      - key: XBOX_CLIENT_SECRET
+        sync: false
+      - key: OPENXBL_KEY
+        sync: false
+      - key: DONATE_URL
+        sync: false
+      - key: PSN_NPSSO
+        sync: false
+      - key: TWITCH_CLIENT_ID
+        sync: false
+      - key: TWITCH_CLIENT_SECRET
+        sync: false
+      - key: SGDB_KEY
+        sync: false

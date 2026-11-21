@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Playtested — Verified Player Game Reviews</title>
+    <meta
+      name="description"
+      content="0–100 game scores weighted by real playtime. Only verified owners can review — no critics, no paid hype, no drive-by review bombing."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..600&family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('playtested_theme');
+          var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand-link" href="#discover" id="brand-home" aria-label="Playtested home">
+          <span class="brand-symbol" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path
+                d="M5 7h12.5C24 7 27 10.5 27 16s-3 9-9.5 9H13v-7h5c1.7 0 2.5-.6 2.5-2s-.8-2-2.5-2H12v15H5V7Z"
+                fill="currentColor"
+              />
+              <path d="M5 3h7v4H5z" fill="currentColor" />
+            </svg>
+          </span>
+          <span class="brand-wordmark">playtested<span class="brand-dot">.</span></span>
+        </a>
+
+        <nav class="primary-nav" aria-label="Main navigation">
+          <button type="button" class="nav-tab is-active" data-view="discover" aria-current="page">
+            Discover
+          </button>
+          <button type="button" class="nav-tab" data-view="reviews">
+            Reviews
+          </button>
+          <button type="button" class="nav-tab" data-view="library">
+            My library
+          </button>
+        </nav>
+
+        <div class="header-actions">
+          <label class="search-box" aria-label="Search games">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="Search games..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="search-clear" class="search-clear" aria-label="Clear search" hidden>
+              ✕
+            </button>
+            <kbd class="search-kbd" aria-hidden="true">/</kbd>
+          </label>
+
+          <span class="header-divider" aria-hidden="true"></span>
+
+          <div id="user-controls" class="user-controls"></div>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <!-- DISCOVER VIEW -->
+      <div id="view-discover" class="view">
+        <section class="hero" id="hero-section">
+          <div class="hero-art" aria-hidden="true">
+            <img
+              src="/images/after-hours.png"
+              alt=""
+              fetchpriority="high"
+            />
+          </div>
+          <div class="hero-wash" aria-hidden="true"></div>
+          <div class="hero-inner">
+            <div class="hero-content">
+              <div class="eyebrow">
+                <span class="eyebrow-dot" aria-hidden="true"></span>
+                VERIFIED OWNERS ONLY · ZERO CRITICS
+              </div>
+              <h1>
+                Life’s short.<br />
+                <em>Play better.</em>
+              </h1>
+              <p class="hero-sub">
+                Independent 0–100 scores for Steam, PlayStation, and Xbox — weighted by real playtime and never
+                mixed across platforms. Connect your gaming accounts to review games you actually own and played.
+              </p>
+              <div class="hero-ctas">
+                <button type="button" class="btn-primary" id="hero-browse-btn">
+                  Browse catalog
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 12h15M13 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <button type="button" class="btn-ghost" id="hero-auth-btn">
+                  Sign in to rate games
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 12h15M13 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              <div class="hero-stats" id="hero-stats" aria-label="Platform statistics">
+                <div class="stat-item">
+                  <strong id="stat-games">—</strong>
+                  <span>Games indexed</span>
+                </div>
+                <div class="stat-item">
+                  <strong id="stat-reviews">—</strong>
+                  <span>Verified reviews</span>
+                </div>
+                <div class="stat-item">
+                  <strong id="stat-hours">—</strong>
+                  <span>Playtime logged</span>
+                </div>
+                <div class="stat-item">
+                  <strong>0</strong>
+                  <span>Critic scores</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hero-caption" aria-hidden="true">
+              <span class="caption-cross">+</span>
+              <div>
+                <span>FOR THE LOVE OF THE GAME</span>
+                <p>Less hype. More hours played.</p>
+              </div>
+              <span class="caption-line"></span>
+            </div>
+            <div class="hero-index" aria-hidden="true">
+              <span>01</span> — Verified players only
+            </div>
+          </div>
+        </section>
+
+        <div class="trust-strip" role="region" aria-label="Playtested principles">
+          <span class="trust-lead">VERIFIED OWNERSHIP. ALWAYS.</span>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            Library-verified owners only
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            Minimum 2h playtime required
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            Playtime-weighted 0–100 scores
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+            No critic ratings. Ever.
+          </div>
+          <span class="strip-spark" aria-hidden="true">✳</span>
+        </div>
+
+        <!-- SPOTLIGHT STRIP (populated dynamically when verified reviews exist) -->
+        <section class="spotlight-section container" id="spotlight-section" hidden>
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow section-eyebrow">FRESH FROM VERIFIED LIBRARIES</div>
+              <h2>Recently playtested<span class="accent-dot">.</span></h2>
+            </div>
+            <button type="button" class="btn-link" id="spotlight-all-reviews">
+              Read all verified reviews
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 12h15M13 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <div id="spotlight-grid" class="spotlight-grid"></div>
+        </section>
+
+        <!-- FULL CATALOG WITH SIDEBAR FILTERS -->
+        <section class="catalog-section container" id="catalog">
+          <div class="catalog-header">
+            <div>
+              <div class="eyebrow section-eyebrow">THE VERIFIED CATALOG</div>
+              <h2 id="catalog-title">Trending now<span class="accent-dot">.</span></h2>
+              <p id="catalog-count" class="catalog-subtitle">Loading catalog…</p>
+            </div>
+            <div class="catalog-quick-actions">
+              <button type="button" class="btn-outline mobile-filter-btn" id="open-filters-btn" aria-expanded="false" aria-controls="filters-sidebar">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 6h16M7 12h10M10 18h4" />
+                </svg>
+                Filters
+                <span id="filter-count-badge" class="badge-count" hidden>0</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="catalog-layout">
+            <aside class="filters-sidebar" id="filters-sidebar" aria-label="Catalog filters">
+              <div class="sidebar-mobile-head">
+                <h3>Filters</h3>
+                <button type="button" class="icon-close-btn" id="close-filters-btn" aria-label="Close filters">✕</button>
+              </div>
+
+              <div class="filter-group">
+                <label for="f-sort">Sort by</label>
+                <select id="f-sort">
+                  <option value="trend">Trending</option>
+                  <option value="new">Newest</option>
+                  <option value="top">Top rated</option>
+                  <option value="most">Most reviewed</option>
+                  <option value="old">Oldest</option>
+                  <option value="az">Name A to Z</option>
+                  <option value="za">Name Z to A</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label for="f-from">Release year</label>
+                <div class="year-row">
+                  <input id="f-from" type="number" min="1980" max="2030" placeholder="From" aria-label="Release year from" />
+                  <span class="year-sep" aria-hidden="true">–</span>
+                  <input id="f-to" type="number" min="1980" max="2030" placeholder="To" aria-label="Release year to" />
+                </div>
+              </div>
+
+              <div class="filter-group">
+                <label for="f-dev">Developer</label>
+                <input id="f-dev" type="text" placeholder="e.g. FromSoftware" />
+              </div>
+
+              <div class="filter-group">
+                <label for="f-pub">Publisher</label>
+                <input id="f-pub" type="text" placeholder="e.g. Valve" />
+              </div>
+
+              <div class="filter-group">
+                <label for="f-min">Minimum score (0–100)</label>
+                <input id="f-min" type="number" min="0" max="100" placeholder="e.g. 75" />
+              </div>
+
+              <label class="checkbox-row">
+                <input id="f-reviewed" type="checkbox" />
+                <span>Only games with verified reviews</span>
+              </label>
+
+              <button type="button" id="f-reset" class="btn-outline btn-full">
+                Reset filters
+              </button>
+
+              <div class="sidebar-info">
+                <div class="sidebar-info-title">Isolated per-platform scores</div>
+                <p>
+                  Steam, PlayStation, and Xbox scores are calculated <strong>strictly individually</strong> from
+                  verified owners with <strong>2h+</strong> played on that platform — never mixed or averaged together.
+                  Critic scores are never permitted.
+                </p>
+              </div>
+            </aside>
+
+            <div class="catalog-main">
+              <div class="toolbar">
+                <div class="platform-chips" role="group" aria-label="Filter by platform">
+                  <button type="button" class="chip" data-platform="all" aria-pressed="true">
+                    All
+                  </button>
+                  <button type="button" class="chip chip-icon" data-platform="pc" aria-pressed="false" aria-label="Steam" title="Steam"></button>
+                  <button type="button" class="chip chip-icon" data-platform="ps" aria-pressed="false" aria-label="PlayStation" title="PlayStation"></button>
+                  <button type="button" class="chip chip-icon" data-platform="xbox" aria-pressed="false" aria-label="Xbox" title="Xbox"></button>
+                </div>
+
+                <div class="toolbar-right">
+                  <div class="quick-sorts" role="group" aria-label="Quick sort">
+                    <button type="button" class="quick-sort is-active" data-sort="trend">Trending</button>
+                    <button type="button" class="quick-sort" data-sort="new">Newest</button>
+                    <button type="button" class="quick-sort" data-sort="top">Top rated</button>
+                    <button type="button" class="quick-sort" data-sort="most">Most reviewed</button>
+                  </div>
+
+                  <select id="page-size" class="size-select" aria-label="Games per page">
+                    <option value="30">30 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="active-filters" class="active-filters" hidden></div>
+
+              <div id="game-grid" class="game-grid" aria-live="polite"></div>
+
+              <nav id="pager" class="pager" aria-label="Catalog pagination"></nav>
+            </div>
+          </div>
+        </section>
+
+        <!-- EDITORIAL PROMISE BANNER -->
+        <section class="container">
+          <div class="editorial-banner">
+            <div class="banner-symbol" aria-hidden="true">p<span>t</span></div>
+            <div class="banner-copy">
+              <span class="eyebrow">YOUR TIME IS PRECIOUS. YOUR PLAYTIME PROVES IT.</span>
+              <h3>Honest scores from people who <em>actually played.</em></h3>
+              <p>Connect your Steam, PlayStation, or Xbox account to add your voice — one verified review per platform, editable anytime.</p>
+            </div>
+            <button type="button" class="btn-outline banner-cta" id="banner-cta-btn">
+              Connect gaming accounts
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 12h15M13 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- REVIEWS FEED VIEW -->
+      <div id="view-reviews" class="view" hidden>
+        <section class="container page-section">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow section-eyebrow">NO CRITICS. NO PAID HYPE.</div>
+              <h2>Verified player reviews<span class="accent-dot">.</span></h2>
+              <p class="section-description" id="reviews-feed-count">Loading verified reviews…</p>
+            </div>
+            <div class="reviews-toolbar">
+              <div class="platform-chips" role="group" aria-label="Filter reviews by platform">
+                <button type="button" class="chip rev-plat-chip" data-rev-plat="all" aria-pressed="true">All</button>
+                <button type="button" class="chip chip-icon rev-plat-chip" data-rev-plat="pc" aria-pressed="false" aria-label="Steam" title="Steam"></button>
+                <button type="button" class="chip chip-icon rev-plat-chip" data-rev-plat="ps" aria-pressed="false" aria-label="PlayStation" title="PlayStation"></button>
+                <button type="button" class="chip chip-icon rev-plat-chip" data-rev-plat="xbox" aria-pressed="false" aria-label="Xbox" title="Xbox"></button>
+              </div>
+              <select id="reviews-feed-sort" class="size-select" aria-label="Sort reviews">
+                <option value="recent">Most recent</option>
+                <option value="hours">Most playtime</option>
+                <option value="high">Highest score</option>
+                <option value="low">Lowest score</option>
+              </select>
+            </div>
+          </div>
+          <div id="reviews-feed-list" class="reviews-feed-grid"></div>
+        </section>
+      </div>
+
+      <!-- MY LIBRARY VIEW -->
+      <div id="view-library" class="view" hidden>
+        <section class="container page-section">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow section-eyebrow">YOUR VERIFIED GAMES</div>
+              <h2>My connected libraries<span class="accent-dot">.</span></h2>
+              <p class="section-description">
+                Connect Steam, PlayStation, or Xbox to browse your owned games and publish platform-specific scores (2h+ required).
+              </p>
+            </div>
+            <button type="button" class="btn-outline" data-action="open-auth">
+              Manage connected accounts
+            </button>
+          </div>
+          <div id="library-container"></div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span class="brand-link footer-brand">
+          <span class="brand-symbol brand-symbol-sm" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path
+                d="M5 7h12.5C24 7 27 10.5 27 16s-3 9-9.5 9H13v-7h5c1.7 0 2.5-.6 2.5-2s-.8-2-2.5-2H12v15H5V7Z"
+                fill="currentColor"
+              />
+              <path d="M5 3h7v4H5z" fill="currentColor" />
+            </svg>
+          </span>
+          <span class="brand-wordmark brand-wordmark-sm">playtested<span class="brand-dot">.</span></span>
+        </span>
+        <span class="footer-promise">
+          Every score on Playtested comes from a verified owner. Critic ratings are not allowed, ever.
+        </span>
+        <div class="footer-right">
+          <a
+            id="coffee-donate-btn"
+            class="coffee-btn"
+            href="#support"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Buy me a coffee via PayPal"
+          >
+            <svg class="coffee-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M20.216 6.415l-.132-.666c-.119-.598-.388-1.163-1.001-1.379-.197-.069-.42-.098-.57-.241-.152-.143-.196-.366-.231-.572-.065-.378-.125-.756-.192-1.133-.057-.325-.102-.69-.25-.987-.195-.4-.597-.634-.996-.788a5.723 5.723 0 00-.626-.194c-1-.263-2.05-.36-3.077-.416a25.834 25.834 0 00-3.7.062c-.915.083-1.88.184-2.75.5-.318.116-.646.256-.888.501-.297.302-.393.77-.177 1.146.154.267.415.456.692.58.36.162.737.284 1.123.366 1.075.238 2.189.331 3.287.37 1.218.05 2.437.01 3.65-.118.299-.033.598-.073.896-.119.352-.054.578-.513.474-.834-.124-.383-.457-.531-.834-.473-.466.074-.96.108-1.382.146-1.177.08-2.358.082-3.536.006a22.228 22.228 0 01-1.157-.107c-.086-.01-.18-.025-.258-.036-.243-.036-.484-.08-.724-.13-.111-.027-.111-.185 0-.212h.005c.277-.06.557-.108.838-.147h.002c.131-.009.263-.032.394-.048a25.076 25.076 0 013.426-.12c.674.019 1.347.067 2.017.144l.228.031c.267.04.533.088.798.145.392.085.895.113 1.07.542.055.137.08.288.111.431l.319 1.484a.237.237 0 01-.199.284h-.003c-.037.006-.075.01-.112.015a36.704 36.704 0 01-4.743.295 37.059 37.059 0 01-4.699-.304c-.14-.017-.293-.042-.417-.06-.326-.048-.649-.108-.973-.161-.393-.065-.768-.032-1.123.161-.29.16-.527.404-.675.701-.154.316-.199.66-.267 1-.069.34-.176.707-.135 1.056.087.753.613 1.365 1.37 1.502a39.69 39.69 0 0011.343.376.483.483 0 01.535.53l-.071.697-1.018 9.907c-.041.41-.047.832-.125 1.237-.122.637-.553 1.028-1.182 1.171-.577.131-1.165.2-1.756.205-.656.004-1.31-.025-1.966-.022-.699.004-1.556-.06-2.095-.58-.475-.458-.54-1.174-.605-1.793l-.731-7.013-.322-3.094c-.037-.351-.286-.695-.678-.678-.336.015-.718.3-.678.679l.228 2.185.949 9.112c.147 1.344 1.174 2.068 2.446 2.272.742.12 1.503.144 2.257.156.966.016 1.942.053 2.892-.122 1.408-.258 2.465-1.198 2.616-2.657.34-3.332.683-6.663 1.024-9.995l.215-2.087a.484.484 0 01.39-.426c.402-.078.787-.212 1.074-.518.455-.488.546-1.124.385-1.766zm-1.478.772c-.145.137-.363.201-.578.233-2.416.359-4.866.54-7.308.46-1.748-.06-3.477-.254-5.207-.498-.17-.024-.353-.055-.47-.18-.22-.236-.111-.71-.054-.995.052-.26.152-.609.463-.646.484-.057 1.046.148 1.526.22.577.088 1.156.159 1.737.212 2.48.226 5.002.19 7.472-.14.45-.06.899-.13 1.345-.21.399-.072.84-.206 1.08.206.166.281.188.657.162.974a.544.544 0 01-.169.364zm-6.159 3.9c-.862.37-1.84.788-3.109.788a5.884 5.884 0 01-1.569-.217l.877 9.004c.065.78.717 1.38 1.5 1.38 0 0 1.243.065 1.658.065.447 0 1.786-.065 1.786-.065.783 0 1.434-.6 1.499-1.38l.94-9.95a3.996 3.996 0 00-1.322-.238c-.826 0-1.491.284-2.26.613z"/>
+            </svg>
+            <span>Buy me a coffee</span>
+          </a>
+          <span class="footer-copy">© 2026 Playtested</span>
+        </div>
+      </div>
+    </footer>
+
+    <!-- MOBILE SIDEBAR BACKDROP -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+
+    <!-- GAME DETAIL & REVIEW MODAL -->
+    <dialog id="game-modal" class="modal game-modal" aria-label="Game details and verified reviews"></dialog>
+
+    <!-- SIGN-IN MODAL -->
+    <dialog id="auth-modal" class="modal auth-modal" aria-label="Sign in to Playtested"></dialog>
+
+    <!-- TOAST -->
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
