@@ -57,7 +57,7 @@ const { PlaytestedStore } = require('./lib/store');
 const PORT = Number(process.env.PORT) || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const CRON_SECRET = process.env.CRON_SECRET || '';
-const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE);
+const IS_CLOUD_HOST = Boolean(process.env.K_SERVICE || process.env.RENDER);
 const STEAM_KEY = process.env.STEAM_API_KEY || '';
 const SGDB_KEY = process.env.SGDB_KEY || '';
 const XBOX_CLIENT_ID = process.env.XBOX_CLIENT_ID || '';
@@ -1423,9 +1423,9 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(
       `Playtested running at ${BASE} [storage=${info.mode}, games=${db.games.length}, reviews=${db.reviews.length}]` +
-        (IS_CLOUD_RUN ? ' [Cloud Run stateless mode]' : '')
+        (IS_CLOUD_HOST ? ' [Cloud managed mode]' : '')
     );
-    if (!NO_SYNC && !IS_CLOUD_RUN) {
+    if (!NO_SYNC && !IS_CLOUD_HOST) {
       const go = () => refreshCatalog().catch((e) => console.log('Refresh skipped:', e.message));
       go();
       setInterval(go, 21600000);
