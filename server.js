@@ -494,8 +494,17 @@ async function fetchJsonSafe(url) {
   }
 }
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 const isValidGame = (g) =>
-  Boolean(g && g.name && g.developer && g.cover && /^(19|20)\d\d-\d\d-\d\d$/.test(g.date || ''));
+  Boolean(
+    g &&
+      g.name &&
+      g.developer &&
+      g.cover &&
+      /^(19|20)\d\d-\d\d-\d\d$/.test(g.date || '') &&
+      g.date <= todayIso()
+  );
 
 const isBadId = (id) => Boolean(db.bad[id] && Date.now() - db.bad[id] < 1209600000);
 
