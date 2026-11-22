@@ -71,7 +71,70 @@
     xboxPanelOpen: false,
     xboxChallenge: null,
     lastModalCloseTs: 0,
+    utm: null,
   };
+
+  // ---- Privacy-First Zero-Cookie UTM Attribution ----
+  function initUtmAttribution(params) {
+    let utm = null;
+    try {
+      const saved = sessionStorage.getItem('pt_utm');
+      if (saved) utm = JSON.parse(saved);
+    } catch {}
+
+    const qSource = params.get('utm_source');
+    const qCampaign = params.get('utm_campaign');
+    if (qSource) {
+      utm = {
+        source: qSource.trim().toLowerCase().slice(0, 40),
+        campaign: (qCampaign || 'launch').trim().toLowerCase().slice(0, 40),
+      };
+    } else if (!utm && document.referrer) {
+      try {
+        const refHost = new URL(document.referrer).hostname.replace(/^www\./, '').toLowerCase();
+        if (refHost && refHost !== window.location.hostname.toLowerCase()) {
+          const mapped = refHost.includes('reddit')
+            ? 'reddit'
+            : refHost.includes('youtube') || refHost.includes('youtu.be')
+              ? 'youtube'
+              : refHost.includes('tiktok')
+                ? 'tiktok'
+                : refHost.includes('instagram')
+                  ? 'instagram'
+                  : refHost.includes('google')
+                    ? 'google'
+                    : refHost.replace(/[^a-z0-9_-]+/g, '_').slice(0, 32);
+          utm = { source: mapped, campaign: 'referral' };
+        }
+      } catch {}
+    }
+
+    if (utm) {
+      state.utm = utm;
+      try {
+        sessionStorage.setItem('pt_utm', JSON.stringify(utm));
+      } catch {}
+    }
+
+    // Record one visit per browser session
+    try {
+      if (!sessionStorage.getItem('pt_utm_visited')) {
+        sessionStorage.setItem('pt_utm_visited', '1');
+        trackMarketingEvent('visit');
+      }
+    } catch {}
+  }
+
+  function trackMarketingEvent(event, platform = '') {
+    const src = state.utm?.source || 'direct';
+    const cmp = state.utm?.campaign || 'organic';
+    fetch('/api/marketing/event', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ event, source: src, campaign: cmp, ...(platform ? { platform } : {}) }),
+      keepalive: true,
+    }).catch(() => {});
+  }
 
   // ---- Utilities ----
   const scoreClass = (s) => (s == null ? 'na' : s >= 75 ? 'hi' : s >= 50 ? 'mid' : 'lo');
@@ -974,6 +1037,7 @@
             verifyBioBtn.disabled = false;
             return;
           }
+          trackMarketingEvent('connect', 'ps');
           await refreshSessionAfterAuth('PlayStation Network connected!');
         } catch (err) {
           status.className = 'form-status err';
@@ -1002,6 +1066,7 @@
             verifyDirectBtn.disabled = false;
             return;
           }
+          trackMarketingEvent('connect', 'ps');
           await refreshSessionAfterAuth('PlayStation Network connected!');
         } catch (err) {
           status.className = 'form-status err';
@@ -1055,6 +1120,7 @@
           }
           state.xboxChallenge = null;
           state.xboxPanelOpen = false;
+          trackMarketingEvent('connect', 'xbox');
           await refreshSessionAfterAuth('Xbox Live connected!');
         } catch (err) {
           xboxStatus.className = 'form-status err';
@@ -1450,6 +1516,9 @@
             submitBtn.disabled = false;
             return;
           }
+          if (!data.edited) {
+            trackMarketingEvent('review', plat);
+          }
           showToast(
             data.edited
               ? `${PLAT_LABELS[plat]} verified review updated!`
@@ -1816,17 +1885,20 @@
     initEvents();
 
     const params = new URLSearchParams(window.location.search);
+    initUtmAttribution(params);
     const errCode = params.get('e');
     const connected = params.get('connected');
+    const hasUtm = params.has('utm_source') || params.has('utm_campaign') || params.has('utm_medium');
     if (errCode === 'login') showToast('Steam sign-in failed. Please try again.');
     if (errCode === 'xbox_login') showToast('Xbox sign-in failed. Please try again.');
     if (errCode === 'xbox_config') {
       showToast('Xbox Live connection is currently unavailable on this server. Please try again later.');
     }
     if (connected && PLAT_LABELS[connected]) {
+      trackMarketingEvent('connect', connected);
       showToast(`${PLAT_LABELS[connected]} connected! You can now publish verified reviews.`);
     }
-    if (errCode || connected) {
+    if (errCode || connected || hasUtm) {
       history.replaceState(null, '', '/');
     }
 

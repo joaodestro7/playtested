@@ -79,6 +79,7 @@ const db = {
   reviews: [],
   bad: {},
   genOffsets: {},
+  marketing: {},
 };
 let byId = new Map();
 
@@ -200,9 +201,94 @@ app.use(
 );
 
 // Prevent Cloudflare/proxies from ever caching auth or private user API responses
-app.use(['/auth', '/api/me', '/api/library', '/api/eligibility', '/api/review'], (_req, res, next) => {
+app.use(['/auth', '/api/me', '/api/library', '/api/eligibility', '/api/review', '/api/marketing'], (_req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   next();
+});
+
+// Privacy-first, zero-cookie aggregate UTM attribution (visits -> connects -> reviews)
+const ALLOWED_UTM_EVENTS = new Set(['visit', 'connect', 'review']);
+function cleanUtmTag(val, fallback) {
+  const s = String(val || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+  return s || fallback;
+}
+
+app.post('/api/marketing/event', async (req, res) => {
+  const { event, source, campaign, platform } = req.body || {};
+  if (!ALLOWED_UTM_EVENTS.has(event)) {
+    return res.status(400).json({ error: 'Invalid event.' });
+  }
+  const src = cleanUtmTag(source, 'direct');
+  const cmp = cleanUtmTag(campaign, 'organic');
+  const key = `${src}/${cmp}`;
+  const existingKeys = Object.keys(db.marketing || {});
+  if (!db.marketing[key] && existingKeys.length >= 250) {
+    return res.json({ ok: true, capped: true });
+  }
+  if (!db.marketing[key]) {
+    db.marketing[key] = {
+      source: src,
+      campaign: cmp,
+      visits: 0,
+      connects: 0,
+      reviews: 0,
+      platforms: { pc: 0, ps: 0, xbox: 0 },
+      firstSeen: Date.now(),
+      lastSeen: Date.now(),
+    };
+  }
+  const bucket = db.marketing[key];
+  if (event === 'visit') bucket.visits += 1;
+  if (event === 'connect') {
+    bucket.connects += 1;
+    if (PLATFORM_ORDER.includes(platform)) {
+      bucket.platforms = bucket.platforms || { pc: 0, ps: 0, xbox: 0 };
+      bucket.platforms[platform] = (bucket.platforms[platform] || 0) + 1;
+    }
+  }
+  if (event === 'review') bucket.reviews += 1;
+  bucket.lastSeen = Date.now();
+
+  save();
+  if (store.isPostgres) {
+    store.setKv('marketing', db.marketing).catch(() => {});
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/marketing/report', (_req, res) => {
+  const campaigns = Object.values(db.marketing || {})
+    .map((b) => ({
+      ...b,
+      connectRatePct: b.visits ? Math.round((b.connects / b.visits) * 1000) / 10 : 0,
+      reviewRatePct: b.visits ? Math.round((b.reviews / b.visits) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.visits - a.visits || b.reviews - a.reviews);
+
+  const totals = campaigns.reduce(
+    (acc, c) => {
+      acc.visits += c.visits || 0;
+      acc.connects += c.connects || 0;
+      acc.reviews += c.reviews || 0;
+      return acc;
+    },
+    { visits: 0, connects: 0, reviews: 0 }
+  );
+
+  res.json({
+    updatedAt: new Date().toISOString(),
+    totals,
+    siteTotals: {
+      games: db.games.length,
+      reviews: db.reviews.length,
+    },
+    campaigns,
+  });
 });
 
 // XML sitemap for search engines
