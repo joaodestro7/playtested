@@ -134,18 +134,21 @@ a {
 }
 
 .skip-link {
-  position: absolute;
-  left: -999px;
-  top: 8px;
-  z-index: 100;
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 200;
   background: var(--accent);
   color: var(--accent-ink);
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   font-weight: 600;
+  transform: translateY(-160%);
+  transition: transform 0.15s ease;
 }
-.skip-link:focus {
-  left: 12px;
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .container {
@@ -540,7 +543,7 @@ a {
 }
 
 [data-theme="light"] .hero-art {
-  inset: 24px 4% 40px 48%;
+  inset: 24px 4% 40px 51%;
   border-radius: 44% 44% 8px 8px;
   overflow: hidden;
 }
@@ -552,9 +555,9 @@ a {
   background: linear-gradient(
     90deg,
     var(--bg) 0%,
-    var(--bg) 42%,
-    rgba(243, 240, 230, 0.55) 52%,
-    transparent 65%
+    var(--bg) 46%,
+    rgba(243, 240, 230, 0.72) 55%,
+    transparent 68%
   );
 }
 
@@ -1801,6 +1804,7 @@ dialog.auth-modal {
 }
 
 .modal-scroll {
+  position: relative;
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -2101,8 +2105,14 @@ dialog.auth-modal {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   margin-bottom: 14px;
+}
+.modal-reviews-head .size-select {
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 36px;
 }
 .modal-reviews-head h3 {
   margin: 0;
@@ -2849,6 +2859,27 @@ dialog.confirm-modal {
   }
   .footer-copy {
     margin-left: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-modal-body {
+    padding: 22px 18px;
+  }
+  .provider-row {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .provider-meta {
+    min-width: calc(100% - 52px);
+  }
+  .provider-connect-btn,
+  .provider-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .provider-connect-btn {
+    justify-content: center;
   }
 }
 

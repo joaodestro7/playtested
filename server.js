@@ -110,7 +110,7 @@ async function ensureSession(req, res) {
     };
     await store.saveSession(sid, session);
     const secure = BASE.startsWith('https://') ? '; Secure' : '';
-    res.setHeader('Set-Cookie', `sid=${sid}; Path=/; HttpOnly; SameSite=Lax${secure}`);
+    res.setHeader('Set-Cookie', `sid=${sid}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secure}`);
   }
   return { sid, session };
 }
@@ -167,6 +167,23 @@ async function steamApi(endpoint) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+
+// Standard HTTP security headers (clickjacking, MIME sniffing, referrer, CSP, HSTS)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  );
+  if (BASE.startsWith('https://') || req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 app.use(express.json({ limit: '150kb' }));
 app.use(
   express.static(path.join(__dirname, 'public'), {
@@ -186,6 +203,24 @@ app.use(
 app.use(['/auth', '/api/me', '/api/library', '/api/eligibility', '/api/review'], (_req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   next();
+});
+
+// XML sitemap for search engines
+app.get('/sitemap.xml', (_req, res) => {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  const lastmod = new Date().toISOString().slice(0, 10);
+  res.send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+      `  <url>\n` +
+      `    <loc>${BASE}/</loc>\n` +
+      `    <lastmod>${lastmod}</lastmod>\n` +
+      `    <changefreq>daily</changefreq>\n` +
+      `    <priority>1.0</priority>\n` +
+      `  </url>\n` +
+      `</urlset>\n`
+  );
 });
 
 // Lightweight health check for Cloud Run / systemd / uptime monitors
@@ -259,6 +294,11 @@ app.get('/auth/xbox', async (req, res) => {
   const { sid } = await ensureSession(req, res);
   const stateToken = crypto.randomBytes(16).toString('hex');
   const pkce = createPkcePair();
+  // Prune stale OAuth states older than 15 minutes
+  const cutoff = Date.now() - 900000;
+  for (const [k, v] of oauthStates) {
+    if (v.ts < cutoff) oauthStates.delete(k);
+  }
   oauthStates.set(stateToken, { sid, verifier: pkce.verifier, ts: Date.now() });
   res.redirect(buildXboxAuthUrl(BASE, XBOX_CLIENT_ID, stateToken, pkce.challenge));
 });

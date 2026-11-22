@@ -3,11 +3,38 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Playtested — Verified Player Game Reviews</title>
+    <title>Playtested — True Reviews by True Gamers</title>
     <meta
       name="description"
-      content="0–100 game scores weighted by real playtime. Only verified owners can review — no critics, no paid hype, no drive-by review bombing."
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime, strictly isolated per platform, with zero critic ratings ever."
     />
+    <link rel="canonical" href="https://playtested.party/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Playtested" />
+    <meta property="og:url" content="https://playtested.party/" />
+    <meta property="og:title" content="Playtested — True Reviews by True Gamers" />
+    <meta
+      property="og:description"
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime and strictly isolated per platform. Verified owners only, zero critics ever."
+    />
+    <meta property="og:image" content="https://playtested.party/images/after-hours.png" />
+    <meta property="og:image:alt" content="Playtested — True Reviews by True Gamers" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Playtested — True Reviews by True Gamers" />
+    <meta
+      name="twitter:description"
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime. Verified owners only, zero critics ever."
+    />
+    <meta name="twitter:image" content="https://playtested.party/images/after-hours.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Playtested",
+        "url": "https://playtested.party/",
+        "description": "Verified player-only video game review platform with playtime-weighted 0–100 scores isolated per platform (Steam, PlayStation, Xbox) and zero critic ratings."
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -26,7 +53,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -67,6 +94,7 @@
             <input
               id="search-input"
               type="search"
+              aria-label="Search games"
               placeholder="Search games..."
               autocomplete="off"
               spellcheck="false"
@@ -441,6 +469,6 @@
     <!-- TOAST -->
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="/app.js?v=2"></script>
+    <script src="/app.js?v=3"></script>
   </body>
 </html>

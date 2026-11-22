@@ -1803,6 +1803,13 @@
         setSidebarOpen(false);
       }
     });
+
+    window.addEventListener('offline', () => {
+      showToast('You appear to be offline. Reconnect to load updates or post reviews.');
+    });
+    window.addEventListener('online', () => {
+      showToast('Back online!');
+    });
   }
 
   async function boot() {
