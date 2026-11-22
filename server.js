@@ -52,8 +52,12 @@ const {
   hydrateWikidataEntities,
   fetchGenerationQids,
 } = require('./lib/wikidata');
+const { PlaytestedStore } = require('./lib/store');
 
 const PORT = Number(process.env.PORT) || 3000;
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const CRON_SECRET = process.env.CRON_SECRET || '';
+const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE);
 const STEAM_KEY = process.env.STEAM_API_KEY || '';
 const SGDB_KEY = process.env.SGDB_KEY || '';
 const XBOX_CLIENT_ID = process.env.XBOX_CLIENT_ID || '';
@@ -68,29 +72,19 @@ const MIN_HOURS = Number(process.env.MIN_HOURS) || 2;
 const NO_SYNC = process.env.NO_SYNC === '1';
 
 const DB_FILE = path.join(__dirname, 'db.json');
+const store = new PlaytestedStore({ dbFile: DB_FILE, databaseUrl: DATABASE_URL });
 const db = {
   games: [],
   reviews: [],
   bad: {},
   genOffsets: {},
-  ...(fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : {}),
 };
-if (!db.genOffsets || typeof db.genOffsets !== 'object') db.genOffsets = {};
+let byId = new Map();
 
-// Startup deduplication & multi-platform enrichment (guarantees zero duplicate games)
-let { byId, mergedCount } = deduplicateCatalog(db);
-const enrichedCount = enrichMultiplatformCatalog(db, byId, upsertCanonicalGame);
-if (mergedCount > 0 || enrichedCount > 0) {
-  console.log(`Catalog normalized: ${mergedCount} duplicate(s) merged, ${enrichedCount} multi-platform record(s) enriched.`);
-}
-
-const sessions = new Map();
 const oauthStates = new Map();
 
 function save() {
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db));
-  fs.renameSync(tmp, DB_FILE);
+  store.saveLocalSync(db);
 }
 
 function getSid(req) {
@@ -98,21 +92,22 @@ function getSid(req) {
   return match ? match[1] : null;
 }
 
-function getSession(req) {
+async function getSession(req) {
   const sid = getSid(req);
-  return sid ? sessions.get(sid) || null : null;
+  return sid ? await store.getSession(sid) : null;
 }
 
-function ensureSession(req, res) {
+async function ensureSession(req, res) {
   let sid = getSid(req);
-  let session = sid ? sessions.get(sid) : null;
+  let session = sid ? await store.getSession(sid) : null;
   if (!session) {
     sid = crypto.randomBytes(24).toString('hex');
     session = {
       accounts: { pc: null, ps: null, xbox: null },
       psnChallenge: null,
+      xboxChallenge: null,
     };
-    sessions.set(sid, session);
+    await store.saveSession(sid, session);
     const secure = BASE.startsWith('https://') ? '; Secure' : '';
     res.setHeader('Set-Cookie', `sid=${sid}; Path=/; HttpOnly; SameSite=Lax${secure}`);
   }
@@ -160,15 +155,44 @@ app.use(['/auth', '/api/me', '/api/library', '/api/eligibility', '/api/review'],
   next();
 });
 
-// Lightweight health check for systemd / Cloudflare / uptime monitors
+// Lightweight health check for Cloud Run / systemd / uptime monitors
 app.get('/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     ok: true,
+    storage: store.isPostgres ? 'postgres' : 'json',
     uptimeSec: Math.round(process.uptime()),
     games: db.games.length,
     reviews: db.reviews.length,
   });
+});
+
+// Optional Cloud Scheduler cron endpoint to refresh trending & index a cross-gen batch
+app.post('/api/cron/sync', async (req, res) => {
+  if (!CRON_SECRET || req.headers['x-cron-secret'] !== CRON_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    await refreshCatalog();
+    const bucket = GENERATION_BUCKETS[Math.floor(Date.now() / 3600000) % GENERATION_BUCKETS.length];
+    const offset = Number(db.genOffsets[bucket.qid] || 0);
+    const qids = await fetchGenerationQids(bucket.qid, offset, 35);
+    const hydrated = await hydrateWikidataEntities(qids);
+    const upserted = [];
+    for (const item of hydrated) {
+      if (isValidGame(item)) upserted.push(upsertCanonicalGame(db, byId, item));
+    }
+    db.genOffsets[bucket.qid] = qids.length ? offset + qids.length : 0;
+    if (store.isPostgres) {
+      await store.upsertGamesBatch(upserted);
+      await store.setKv('genOffsets', db.genOffsets);
+    } else {
+      save();
+    }
+    res.json({ ok: true, bucket: bucket.label, synced: upserted.length, total: db.games.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================================================================
@@ -183,8 +207,9 @@ app.get('/auth/steam', (_req, res) => {
 app.get('/auth/steam/return', async (req, res) => {
   try {
     const account = await verifySteamReturn(req.query, STEAM_KEY);
-    const { session } = ensureSession(req, res);
+    const { sid, session } = await ensureSession(req, res);
     session.accounts.pc = { ...account, lib: null };
+    await store.saveSession(sid, session);
     res.redirect('/?connected=pc');
   } catch (err) {
     console.warn('Steam login failed:', err.message);
@@ -193,11 +218,11 @@ app.get('/auth/steam/return', async (req, res) => {
 });
 
 // ---- Xbox Live (Microsoft Identity v2.0 OAuth + PKCE -> XBL -> XSTS, OR OpenXBL Bio Challenge) ----
-app.get('/auth/xbox', (req, res) => {
+app.get('/auth/xbox', async (req, res) => {
   if (!XBOX_CLIENT_ID) {
     return res.redirect('/?e=xbox_config');
   }
-  const { sid } = ensureSession(req, res);
+  const { sid } = await ensureSession(req, res);
   const stateToken = crypto.randomBytes(16).toString('hex');
   const pkce = createPkcePair();
   oauthStates.set(stateToken, { sid, verifier: pkce.verifier, ts: Date.now() });
@@ -223,8 +248,9 @@ app.get('/auth/xbox/return', async (req, res) => {
       XBOX_CLIENT_SECRET,
       savedState.verifier
     );
-    const { session } = ensureSession(req, res);
+    const { sid, session } = await ensureSession(req, res);
     session.accounts.xbox = { ...account, lib: null };
+    await store.saveSession(sid, session);
     res.redirect('/?connected=xbox');
   } catch (err) {
     console.warn('Xbox login failed:', err.message);
@@ -232,7 +258,7 @@ app.get('/auth/xbox/return', async (req, res) => {
   }
 });
 
-app.post('/auth/xbox/challenge', (req, res) => {
+app.post('/auth/xbox/challenge', async (req, res) => {
   const gamertag = String(req.body?.gamertag || '').trim();
   if (gamertag.length < 2 || gamertag.length > 25) {
     return res.status(400).json({ error: 'Enter a valid Xbox Gamertag.' });
@@ -240,19 +266,22 @@ app.post('/auth/xbox/challenge', (req, res) => {
   if (!OPENXBL_KEY) {
     return res.status(400).json({ error: 'Xbox bio verification is not configured on this server.' });
   }
-  const { session } = ensureSession(req, res);
+  const { sid, session } = await ensureSession(req, res);
   const code = createPsnChallengeCode();
   session.xboxChallenge = { gamertag, code, ts: Date.now() };
+  await store.saveSession(sid, session);
   res.json({ gamertag, code });
 });
 
 app.post('/auth/xbox/verify', async (req, res) => {
-  const session = getSession(req);
+  const sid = getSid(req);
+  const session = await getSession(req);
   if (!session?.xboxChallenge) {
     return res.status(400).json({ error: 'Generate a verification code first.' });
   }
   if (Date.now() - session.xboxChallenge.ts > 1800000) {
     session.xboxChallenge = null;
+    await store.saveSession(sid, session);
     return res.status(400).json({ error: 'Verification code expired. Please generate a new one.' });
   }
   try {
@@ -263,6 +292,7 @@ app.post('/auth/xbox/verify', async (req, res) => {
     );
     session.accounts.xbox = { ...account, lib: null };
     session.xboxChallenge = null;
+    await store.saveSession(sid, session);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'xbox' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -270,7 +300,7 @@ app.post('/auth/xbox/verify', async (req, res) => {
 });
 
 // ---- PlayStation Network (Bio Challenge OR Direct Short-Lived NPSSO) ----
-app.post('/auth/psn/challenge', (req, res) => {
+app.post('/auth/psn/challenge', async (req, res) => {
   const onlineId = String(req.body?.onlineId || '').trim();
   if (!/^[A-Za-z0-9_-]{3,16}$/.test(onlineId)) {
     return res.status(400).json({ error: 'Enter a valid PlayStation Online ID (3–16 letters, numbers, - or _).' });
@@ -280,19 +310,22 @@ app.post('/auth/psn/challenge', (req, res) => {
       error: 'Server bio-challenge mode requires PSN_NPSSO. You can use Direct NPSSO verification below instead.',
     });
   }
-  const { session } = ensureSession(req, res);
+  const { sid, session } = await ensureSession(req, res);
   const code = createPsnChallengeCode();
   session.psnChallenge = { onlineId, code, ts: Date.now() };
+  await store.saveSession(sid, session);
   res.json({ onlineId, code });
 });
 
 app.post('/auth/psn/verify', async (req, res) => {
-  const session = getSession(req);
+  const sid = getSid(req);
+  const session = await getSession(req);
   if (!session?.psnChallenge) {
     return res.status(400).json({ error: 'Generate a verification code first.' });
   }
   if (Date.now() - session.psnChallenge.ts > 1800000) {
     session.psnChallenge = null;
+    await store.saveSession(sid, session);
     return res.status(400).json({ error: 'Verification code expired. Please generate a new one.' });
   }
   try {
@@ -303,6 +336,7 @@ app.post('/auth/psn/verify', async (req, res) => {
     );
     session.accounts.ps = { ...account, lib: null };
     session.psnChallenge = null;
+    await store.saveSession(sid, session);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -316,8 +350,9 @@ app.post('/auth/psn/direct', async (req, res) => {
   }
   try {
     const account = await verifyPsnDirectNpsso(npsso);
-    const { session } = ensureSession(req, res);
+    const { sid, session } = await ensureSession(req, res);
     session.accounts.ps = { ...account, lib: null };
+    await store.saveSession(sid, session);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -325,19 +360,21 @@ app.post('/auth/psn/direct', async (req, res) => {
 });
 
 // ---- Unlink Single Platform / Full Logout ----
-app.post('/auth/unlink/:platform', (req, res) => {
+app.post('/auth/unlink/:platform', async (req, res) => {
   const plat = String(req.params.platform);
-  const session = getSession(req);
+  const sid = getSid(req);
+  const session = await getSession(req);
   if (!session || !PLATFORM_ORDER.includes(plat)) {
     return res.status(400).json({ error: 'Invalid platform.' });
   }
   session.accounts[plat] = null;
+  await store.saveSession(sid, session);
   res.json({ ok: true });
 });
 
-app.get('/auth/logout', (req, res) => {
+app.get('/auth/logout', async (req, res) => {
   const sid = getSid(req);
-  if (sid) sessions.delete(sid);
+  if (sid) await store.deleteSession(sid);
   res.setHeader('Set-Cookie', 'sid=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax');
   res.redirect('/');
 });
@@ -571,13 +608,15 @@ async function ingestSteamGame(id) {
     db.bad[sid] = Date.now();
     return null;
   }
-  return upsertCanonicalGame(db, byId, {
+  const g = upsertCanonicalGame(db, byId, {
     id: sid,
     platforms: ['pc'],
     platformIds: { steam: sid },
     trend: TREND[sid] || 0,
     ...details,
   });
+  if (store.isPostgres) await store.upsertGame(g).catch(() => {});
+  return g;
 }
 
 let ingestedCount = 0;
@@ -767,6 +806,7 @@ app.post('/api/broken/:id', async (req, res) => {
       if (cover) {
         g.cover = cover;
         save();
+        store.upsertGame(g).catch(() => {});
       }
       g.checked = Date.now();
       return res.json({ cover });
@@ -777,8 +817,8 @@ app.post('/api/broken/:id', async (req, res) => {
   res.json({ cover: '' });
 });
 
-app.get('/api/me', (req, res) => {
-  const s = getSession(req);
+app.get('/api/me', async (req, res) => {
+  const s = await getSession(req);
   const primary = primaryAccount(s);
   if (!primary) return res.json(null);
 
@@ -875,17 +915,15 @@ app.get('/api/games', async (req, res) => {
     const cacheTs = searchCache.get(searchTerm) || 0;
     if (Date.now() - cacheTs > 600000) {
       searchCache.set(searchTerm, Date.now());
+      const newlyDiscovered = [];
       const jobs = [
         searchWikidataGames(searchTerm, 10)
           .then((found) => {
-            let changed = false;
             for (const item of found) {
               if (isValidGame(item)) {
-                upsertCanonicalGame(db, byId, item);
-                changed = true;
+                newlyDiscovered.push(upsertCanonicalGame(db, byId, item));
               }
             }
-            if (changed) save();
           })
           .catch(() => {}),
         searchSteamStorePublic(searchTerm).catch(() => {}),
@@ -895,7 +933,15 @@ app.get('/api/games', async (req, res) => {
         const steamCandidates = APPS.filter(
           (a) => a[2].includes(searchTerm) && !isBadId(a[0]) && !(byId.has(a[0]) && isValidGame(byId.get(a[0])))
         ).slice(0, 4);
-        jobs.push(...steamCandidates.map((a) => ingestSteamGame(a[0]).catch(() => {})));
+        jobs.push(
+          ...steamCandidates.map((a) =>
+            ingestSteamGame(a[0])
+              .then((g) => {
+                if (g) newlyDiscovered.push(g);
+              })
+              .catch(() => {})
+          )
+        );
       }
 
       if (TWITCH_CLIENT_ID && TWITCH_CLIENT_SECRET) {
@@ -903,7 +949,7 @@ app.get('/api/games', async (req, res) => {
           searchIgdb(searchTerm, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, 6)
             .then((found) => {
               for (const item of found) {
-                if (isValidGame(item)) upsertCanonicalGame(db, byId, item);
+                if (isValidGame(item)) newlyDiscovered.push(upsertCanonicalGame(db, byId, item));
               }
             })
             .catch(() => {})
@@ -911,6 +957,10 @@ app.get('/api/games', async (req, res) => {
       }
 
       await Promise.all(jobs);
+      if (newlyDiscovered.length) {
+        save();
+        if (store.isPostgres) await store.upsertGamesBatch(newlyDiscovered).catch(() => {});
+      }
       all = db.games.filter(isValidGame);
     }
   }
@@ -1004,9 +1054,9 @@ app.get('/api/reviews', (req, res) => {
   res.json({ total: list.length, items: list.slice(0, 100) });
 });
 
-app.get('/api/reviews/:id', (req, res) => {
+app.get('/api/reviews/:id', async (req, res) => {
   const id = String(req.params.id);
-  const s = getSession(req);
+  const s = await getSession(req);
   const game = byId.get(id) || null;
   const sc = computeScores(id);
   const raw = db.reviews.filter((x) => String(x.gameId) === id).sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -1046,7 +1096,7 @@ app.get('/api/reviews/:id', (req, res) => {
 
 // Check eligibility for every platform on a specific game (strictly enforces platform release + legacy rules)
 app.get('/api/eligibility/:id', async (req, res) => {
-  const s = getSession(req);
+  const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in first.' });
   const gameId = String(req.params.id);
   const game = byId.get(gameId) || null;
@@ -1143,7 +1193,7 @@ app.get('/api/eligibility/:id', async (req, res) => {
 
 // Unified multi-platform user library
 app.get('/api/library', async (req, res) => {
-  const s = getSession(req);
+  const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in first.' });
 
   const requestedPlat = PLATFORM_ORDER.includes(req.query.platform) ? req.query.platform : null;
@@ -1203,7 +1253,7 @@ app.get('/api/library', async (req, res) => {
 
 // Submit or update a strictly platform-isolated verified review
 app.post('/api/review', async (req, res) => {
-  const s = getSession(req);
+  const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in with a gaming account first.' });
 
   const { gameId, platform = 'pc', text = '', score } = req.body || {};
@@ -1296,7 +1346,7 @@ app.post('/api/review', async (req, res) => {
       (x) => !(String(x.gameId) === canonicalId && x.platform === platform && reviewOwnerId(x) === ownerId)
     );
 
-    db.reviews.push({
+    const newReview = {
       gameId: canonicalId,
       platform,
       accountId: ownerId,
@@ -1309,17 +1359,22 @@ app.post('/api/review', async (req, res) => {
       ...(isLegacyReview ? { legacy: true, legacyEra: legacyStatus.era } : {}),
       ts: Date.now(),
       edited: Boolean(existing),
-    });
+    };
+    db.reviews.push(newReview);
 
     save();
+    if (store.isPostgres) {
+      await store.upsertGame(game);
+      await store.upsertReview(newReview);
+    }
     res.json({ ok: true, edited: Boolean(existing), legacy: isLegacyReview, gameId: canonicalId, platform });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-app.delete('/api/review/:id', (req, res) => {
-  const s = getSession(req);
+app.delete('/api/review/:id', async (req, res) => {
+  const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in first.' });
   const targetId = String(req.params.id);
   const plat = PLATFORM_ORDER.includes(req.query.platform) ? req.query.platform : 'pc';
@@ -1335,34 +1390,52 @@ app.delete('/api/review/:id', (req, res) => {
     return res.status(404).json({ error: 'Review not found.' });
   }
   save();
+  if (store.isPostgres) {
+    await store.deleteReview(targetId, plat, ownerId);
+  }
   res.json({ ok: true });
 });
 
-function shutdown(signal) {
-  console.log(`Received ${signal}, flushing db.json cleanly...`);
+async function shutdown(signal) {
+  console.log(`Received ${signal}, flushing cleanly...`);
   try {
     save();
+    await store.close();
   } catch (err) {
-    console.error('Error saving db.json on shutdown:', err.message);
+    console.error('Error during shutdown:', err.message);
   }
   process.exit(0);
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-app.listen(PORT, () => {
-  console.log(
-    `Playtested running at ${BASE}` +
-      (STEAM_KEY ? '' : '  (STEAM_API_KEY not set)') +
-      (XBOX_CLIENT_ID ? '' : '  (XBOX_CLIENT_ID not set)') +
-      (PSN_NPSSO ? '' : '  (PSN_NPSSO not set — direct NPSSO mode available)') +
-      (TWITCH_CLIENT_ID ? '' : '  (TWITCH_CLIENT_ID/IGDB not set)')
-  );
-  if (!NO_SYNC) {
-    const go = () => refreshCatalog().catch((e) => console.log('Refresh skipped:', e.message));
-    go();
-    setInterval(go, 21600000);
-    catalogWorker();
-    generationWorker();
+async function startServer() {
+  const info = await store.init(db);
+  const deduped = deduplicateCatalog(db);
+  byId = deduped.byId;
+  const enrichedCount = enrichMultiplatformCatalog(db, byId, upsertCanonicalGame);
+  if (deduped.mergedCount > 0 || enrichedCount > 0) {
+    console.log(
+      `Catalog normalized: ${deduped.mergedCount} duplicate(s) merged, ${enrichedCount} multi-platform record(s) enriched.`
+    );
   }
+
+  app.listen(PORT, () => {
+    console.log(
+      `Playtested running at ${BASE} [storage=${info.mode}, games=${db.games.length}, reviews=${db.reviews.length}]` +
+        (IS_CLOUD_RUN ? ' [Cloud Run stateless mode]' : '')
+    );
+    if (!NO_SYNC && !IS_CLOUD_RUN) {
+      const go = () => refreshCatalog().catch((e) => console.log('Refresh skipped:', e.message));
+      go();
+      setInterval(go, 21600000);
+      catalogWorker();
+      generationWorker();
+    }
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Failed to start Playtested:', err);
+  process.exit(1);
 });
