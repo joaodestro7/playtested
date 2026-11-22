@@ -70,6 +70,7 @@
     psnChallenge: null,
     xboxPanelOpen: false,
     xboxChallenge: null,
+    lastModalCloseTs: 0,
   };
 
   // ---- Utilities ----
@@ -227,7 +228,7 @@
           <span class="user-plat-dots" aria-label="Connected platforms">${linked.map((p) => platIcon(p)).join('')}</span>
         </button>
         ${themeSwitchHtml()}
-        <a class="btn-outline" href="/auth/logout">Sign out</a>
+        <button type="button" class="btn-outline" data-action="confirm-logout">Sign out</button>
       `;
       $('#hero-auth-btn').innerHTML = `Open my libraries <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
       $('#banner-cta-btn').innerHTML = `Manage accounts &amp; rate <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
@@ -313,7 +314,7 @@
             <div class="spotlight-title">${esc(g.name)}</div>
             ${hl ? `<p class="spotlight-quote">“${esc(hl.text)}”</p>` : `<p class="spotlight-quote">${g.reviews} verified player ${g.reviews === 1 ? 'review' : 'reviews'}</p>`}
             <div class="spotlight-author">
-              ${hl?.avatar ? `<img src="${esc(hl.avatar)}" alt="" />` : ''}
+              ${hl?.avatar ? `<img src="${esc(hl.avatar)}" referrerpolicy="no-referrer" alt="" />` : ''}
               <span><strong>${esc(hl ? hl.name : g.developer)}</strong></span>
               ${hl ? `<span class="spotlight-hours">${hl.hours}h played</span>` : `<span>${esc(g.date.slice(0, 4))}</span>`}
             </div>
@@ -721,6 +722,35 @@
         }
       </div>
     `;
+  }
+
+  function openLogoutConfirmModal() {
+    const dlg = $('#confirm-modal');
+    if (!dlg) {
+      window.location.href = '/auth/logout';
+      return;
+    }
+    const linked = connectedPlatforms().map((p) => PLAT_LABELS[p]);
+    const listText = linked.length
+      ? `your ${linked.join(', ')} session`
+      : 'your Playtested session';
+
+    dlg.innerHTML = `<div class="modal-scroll"><div class="confirm-modal-body">
+      <button type="button" class="modal-close-btn" data-close-modal="confirm-modal" aria-label="Close">✕</button>
+      <div class="eyebrow" style="margin-bottom:8px;"><span class="eyebrow-dot"></span>ACCOUNT SESSION</div>
+      <h2>Sign out of Playtested<span class="accent-dot">?</span></h2>
+      <p class="confirm-modal-desc">
+        This will end ${esc(listText)} on this device. All your published verified reviews will stay saved.
+      </p>
+      <div class="confirm-modal-actions">
+        <button type="button" class="btn-outline" data-close-modal="confirm-modal" id="confirm-logout-cancel">Cancel</button>
+        <a class="btn-danger" href="/auth/logout" id="confirm-logout-proceed">Sign out</a>
+      </div>
+    </div></div>`;
+
+    if (!dlg.open) dlg.showModal();
+    const cancelBtn = $('#confirm-logout-cancel');
+    if (cancelBtn) cancelBtn.focus();
   }
 
   // ---- Multi-Platform Auth & Linking Modal ----
@@ -1597,6 +1627,12 @@
         toggleTheme();
         return;
       }
+      if (e.target.closest('[data-action="confirm-logout"]')) {
+        // Guard against accidental mobile tap-through right after closing a modal with ✕
+        if (Date.now() - state.lastModalCloseTs < 320) return;
+        openLogoutConfirmModal();
+        return;
+      }
       if (e.target.closest('[data-action="open-auth"]')) {
         openAuthModal(false);
         return;
@@ -1650,6 +1686,9 @@
       }
       const closeModalBtn = e.target.closest('[data-close-modal]');
       if (closeModalBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        state.lastModalCloseTs = Date.now();
         const target = $('#' + closeModalBtn.dataset.closeModal);
         if (target && target.open) target.close();
         return;
@@ -1741,10 +1780,17 @@
       }
     });
 
-    ['#game-modal', '#auth-modal'].forEach((sel) => {
+    ['#game-modal', '#auth-modal', '#confirm-modal'].forEach((sel) => {
       const dlg = $(sel);
+      if (!dlg) return;
+      dlg.addEventListener('close', () => {
+        state.lastModalCloseTs = Date.now();
+      });
       dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) dlg.close();
+        if (e.target === dlg) {
+          state.lastModalCloseTs = Date.now();
+          dlg.close();
+        }
       });
     });
 

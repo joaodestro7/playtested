@@ -2541,6 +2541,37 @@ dialog.auth-modal {
 dialog.auth-modal {
   width: min(520px, 94vw);
 }
+dialog.confirm-modal {
+  width: min(410px, 92vw);
+}
+.confirm-modal-body {
+  padding: 26px 26px 24px;
+  position: relative;
+}
+.confirm-modal-body h2 {
+  font-size: 22px;
+  margin: 0 0 10px;
+  padding-right: 28px;
+}
+.confirm-modal-desc {
+  margin: 0 0 22px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.confirm-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.confirm-modal-actions .btn-outline,
+.confirm-modal-actions .btn-danger {
+  min-width: 104px;
+  min-height: 40px;
+  justify-content: center;
+}
 
 /* ---- Footer ---- */
 .site-footer {

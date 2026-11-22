@@ -41,6 +41,7 @@ const {
   createPsnChallengeCode,
   verifyPsnBioChallenge,
   verifyPsnDirectNpsso,
+  fetchPsnOwnProfile,
   fetchPsnLibrary,
 } = require('./lib/platforms');
 
@@ -121,6 +122,38 @@ function primaryAccount(session) {
 
 function reviewOwnerId(review) {
   return String(review.accountId || review.steamid || '');
+}
+
+async function syncAccountProfileToReviews(platform, account) {
+  if (!account || !account.id) return;
+  const ownerId = String(account.id);
+  const hasRealName = Boolean(account.name && account.name !== 'PlayStation Player');
+  const nextAvatar = account.avatar || '';
+  if (!hasRealName && !nextAvatar) return;
+
+  const updated = [];
+  for (const r of db.reviews) {
+    if (r.platform !== platform || reviewOwnerId(r) !== ownerId) continue;
+    let changed = false;
+    if (hasRealName && r.name !== account.name) {
+      r.name = account.name;
+      changed = true;
+    }
+    if (nextAvatar && r.avatar !== nextAvatar) {
+      r.avatar = nextAvatar;
+      changed = true;
+    }
+    if (changed) updated.push(r);
+  }
+
+  if (updated.length) {
+    save();
+    if (store.isPostgres) {
+      for (const r of updated) {
+        await store.upsertReview(r).catch(() => {});
+      }
+    }
+  }
 }
 
 async function steamApi(endpoint) {
@@ -210,6 +243,7 @@ app.get('/auth/steam/return', async (req, res) => {
     const { sid, session } = await ensureSession(req, res);
     session.accounts.pc = { ...account, lib: null };
     await store.saveSession(sid, session);
+    await syncAccountProfileToReviews('pc', account);
     res.redirect('/?connected=pc');
   } catch (err) {
     console.warn('Steam login failed:', err.message);
@@ -251,6 +285,7 @@ app.get('/auth/xbox/return', async (req, res) => {
     const { sid, session } = await ensureSession(req, res);
     session.accounts.xbox = { ...account, lib: null };
     await store.saveSession(sid, session);
+    await syncAccountProfileToReviews('xbox', account);
     res.redirect('/?connected=xbox');
   } catch (err) {
     console.warn('Xbox login failed:', err.message);
@@ -293,6 +328,7 @@ app.post('/auth/xbox/verify', async (req, res) => {
     session.accounts.xbox = { ...account, lib: null };
     session.xboxChallenge = null;
     await store.saveSession(sid, session);
+    await syncAccountProfileToReviews('xbox', account);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'xbox' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -337,6 +373,7 @@ app.post('/auth/psn/verify', async (req, res) => {
     session.accounts.ps = { ...account, lib: null };
     session.psnChallenge = null;
     await store.saveSession(sid, session);
+    await syncAccountProfileToReviews('ps', account);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -353,6 +390,7 @@ app.post('/auth/psn/direct', async (req, res) => {
     const { sid, session } = await ensureSession(req, res);
     session.accounts.ps = { ...account, lib: null };
     await store.saveSession(sid, session);
+    await syncAccountProfileToReviews('ps', account);
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -394,22 +432,70 @@ async function getLibraryForPlatform(session, platform) {
 }
 
 function findOwnedGameInLibrary(libItems, game, gameId) {
-  const targetId = String(gameId);
+  const targetId = String(gameId || '');
+  const strippedTargetId = targetId.replace(/^(?:ps|xbox|steam)-/i, '');
   const pids = game?.platformIds || {};
   const targetKey = game ? game.canonicalKey || normalizeTitle(game.name) : '';
 
-  return libItems.find((item) => {
-    if (item.externalId && (item.externalId === targetId || item.externalId === String(pids[item.platform] || ''))) {
+  const matches = libItems.filter((item) => {
+    const ids = new Set(
+      [item.externalId, ...(Array.isArray(item.externalIds) ? item.externalIds : [])]
+        .filter(Boolean)
+        .map(String)
+    );
+    const platPid = String(pids[item.platform] || '');
+    if (
+      (targetId && ids.has(targetId)) ||
+      (strippedTargetId && ids.has(strippedTargetId)) ||
+      (platPid && ids.has(platPid))
+    ) {
       return true;
     }
-    if (item.platform === 'pc' && item.externalId === String(pids.steam || targetId)) {
-      return true;
+    if (item.platform === 'pc') {
+      const steamPid = String(pids.steam || targetId);
+      if (steamPid && ids.has(steamPid)) return true;
     }
     if (targetKey && item.canonicalKey && item.canonicalKey === targetKey) {
       return true;
     }
     return false;
   });
+
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+
+  // Combine multi-version ownership (e.g. PS4 + PS5 or Xbox One + Series X|S)
+  // without ever double-counting the same externalId.
+  const seenIds = new Set();
+  const allExternalIds = [];
+  let totalHours = 0;
+  let best = matches[0];
+  let needsLookup = false;
+
+  for (const m of matches) {
+    const mIds = [m.externalId, ...(Array.isArray(m.externalIds) ? m.externalIds : [])].filter(Boolean).map(String);
+    const isDuplicate = mIds.length > 0 && mIds.every((id) => seenIds.has(id));
+    for (const id of mIds) {
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        allExternalIds.push(id);
+      }
+    }
+    if (!isDuplicate) {
+      totalHours += Number(m.hours) || 0;
+    }
+    if ((Number(m.hours) || 0) > (Number(best.hours) || 0)) {
+      best = m;
+    }
+    if (m.needsHoursLookup) needsLookup = true;
+  }
+
+  return {
+    ...best,
+    externalIds: allExternalIds,
+    hours: Math.round(totalHours * 10) / 10,
+    needsHoursLookup: needsLookup,
+  };
 }
 
 /**
@@ -827,10 +913,34 @@ app.post('/api/broken/:id', async (req, res) => {
 });
 
 app.get('/api/me', async (req, res) => {
-  const s = await getSession(req);
+  const sid = getSid(req);
+  const s = sid ? await store.getSession(sid) : null;
   const primary = primaryAccount(s);
   if (!primary) return res.json(null);
 
+  // Auto-upgrade any existing PSN session that previously fell back to "PlayStation Player"
+  const psAcc = s.accounts.ps;
+  if (
+    psAcc &&
+    (psAcc.name === 'PlayStation Player' || !psAcc.avatar) &&
+    psAcc.accessToken &&
+    Date.now() < (psAcc.expiresAt || 0)
+  ) {
+    try {
+      const refreshed = await fetchPsnOwnProfile(psAcc.accessToken, psAcc.id);
+      if (refreshed.name !== 'PlayStation Player' || refreshed.avatar) {
+        if (refreshed.accountId && refreshed.accountId !== 'me') psAcc.id = String(refreshed.accountId);
+        if (refreshed.name !== 'PlayStation Player') psAcc.name = refreshed.name;
+        if (refreshed.avatar) psAcc.avatar = refreshed.avatar;
+        await store.saveSession(sid, s);
+        await syncAccountProfileToReviews('ps', psAcc);
+      }
+    } catch {
+      // Keep existing session profile if PSN refresh fails
+    }
+  }
+
+  const freshPrimary = primaryAccount(s);
   const accounts = {};
   for (const p of PLATFORM_ORDER) {
     accounts[p] = s.accounts[p]
@@ -838,9 +948,9 @@ app.get('/api/me', async (req, res) => {
       : null;
   }
   res.json({
-    name: primary.name,
-    avatar: primary.avatar,
-    primaryPlatform: primary.platform,
+    name: freshPrimary.name,
+    avatar: freshPrimary.avatar,
+    primaryPlatform: freshPrimary.platform,
     accounts,
   });
 });
@@ -1162,7 +1272,7 @@ app.get('/api/eligibility/:id', async (req, res) => {
       const lib = await getLibraryForPlatform(s, p);
       const own = findOwnedGameInLibrary(lib, game, gameId);
       if (own && p === 'xbox' && own.needsHoursLookup && own.externalId && OPENXBL_KEY) {
-        own.hours = await fetchOpenXblTitleHours(own.externalId, OPENXBL_KEY);
+        own.hours = await fetchOpenXblTitleHours(s.accounts.xbox.id, own.externalId, OPENXBL_KEY);
         own.needsHoursLookup = false;
       }
       result[p] = own
@@ -1219,35 +1329,46 @@ app.get('/api/library', async (req, res) => {
         .map((r) => [String(r.gameId), r])
     );
 
-    const enriched = lib
-      .map((item) => {
-        // Match to existing canonical game so zero duplicates occur
-        const matched =
-          byId.get(item.externalId) ||
-          db.games.find(
-            (g) =>
-              String(g.platformIds?.[activePlat] || '') === item.externalId ||
-              (item.canonicalKey && (g.canonicalKey || normalizeTitle(g.name)) === item.canonicalKey)
-          );
-        const canonicalId = matched ? matched.id : item.externalId;
-        const rev = myReviewsMap.get(String(canonicalId));
-        return {
-          id: canonicalId,
-          externalId: item.externalId,
-          platform: activePlat,
-          name: matched?.name || item.name,
-          hours: item.hours,
-          eligible: item.hours >= MIN_HOURS,
-          reviewed: Boolean(rev),
-          myScore: rev ? rev.score : null,
-          cover: matched?.cover || item.cover || '',
-          date: matched?.date || item.releaseDate || null,
-          developer: matched?.developer || item.developer || '',
-          publisher: matched?.publisher || item.publisher || '',
-          platforms: matched?.platforms || [activePlat],
-        };
-      })
-      .sort((a, b) => b.hours - a.hours);
+    const enrichedByCanonical = new Map();
+    for (const item of lib) {
+      const itemIds = [item.externalId, ...(Array.isArray(item.externalIds) ? item.externalIds : [])]
+        .filter(Boolean)
+        .map(String);
+      // Match to existing canonical game so zero duplicates occur
+      const matched =
+        itemIds.map((id) => byId.get(id)).find(Boolean) ||
+        itemIds.map((id) => byId.get(`${activePlat}-${id}`)).find(Boolean) ||
+        db.games.find(
+          (g) =>
+            (g.platformIds?.[activePlat] && itemIds.includes(String(g.platformIds[activePlat]))) ||
+            (item.canonicalKey && (g.canonicalKey || normalizeTitle(g.name)) === item.canonicalKey)
+        );
+      const canonicalId = String(matched ? matched.id : item.externalId);
+      const rev = myReviewsMap.get(canonicalId);
+      const prev = enrichedByCanonical.get(canonicalId);
+      if (prev) {
+        prev.hours = Math.round((prev.hours + (Number(item.hours) || 0)) * 10) / 10;
+        prev.eligible = prev.hours >= MIN_HOURS;
+        if (!prev.cover && item.cover) prev.cover = item.cover;
+        continue;
+      }
+      enrichedByCanonical.set(canonicalId, {
+        id: canonicalId,
+        externalId: item.externalId,
+        platform: activePlat,
+        name: matched?.name || item.name,
+        hours: item.hours,
+        eligible: item.hours >= MIN_HOURS,
+        reviewed: Boolean(rev),
+        myScore: rev ? rev.score : null,
+        cover: matched?.cover || item.cover || '',
+        date: matched?.date || item.releaseDate || null,
+        developer: matched?.developer || item.developer || '',
+        publisher: matched?.publisher || item.publisher || '',
+        platforms: matched?.platforms || [activePlat],
+      });
+    }
+    const enriched = [...enrichedByCanonical.values()].sort((a, b) => b.hours - a.hours);
 
     res.json({
       minHours: MIN_HOURS,
@@ -1308,7 +1429,7 @@ app.post('/api/review', async (req, res) => {
         return res.status(403).json({ error: `This game was not found in your verified ${platLabel} library.` });
       }
       if (platform === 'xbox' && own.needsHoursLookup && own.externalId && OPENXBL_KEY) {
-        own.hours = await fetchOpenXblTitleHours(own.externalId, OPENXBL_KEY);
+        own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
         own.needsHoursLookup = false;
       }
       if (own.hours < MIN_HOURS) {
