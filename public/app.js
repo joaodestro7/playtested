@@ -889,7 +889,7 @@
       </div>
 
       <div class="provider-note">
-        <strong>100% Open Source &amp; Read-Only:</strong> Playtested never asks for your passwords and never writes to
+        <strong>Publicly Auditable &amp; Read-Only:</strong> Playtested never asks for your passwords and never writes to
         your gaming accounts. Ensure your library/gaming history privacy is set to <strong>Public</strong> on Steam,
         PlayStation, or Xbox so ownership and playtime can be verified.
       </div>

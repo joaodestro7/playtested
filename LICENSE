@@ -1,21 +1,31 @@
-MIT License
+Playtested Source-Available License (Audit & Inspection Only)
 
-Copyright (c) 2026 Playtested Contributors
+Copyright (c) 2026 João Victor Destro / Playtested (https://playtested.party)
+All Rights Reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This source code is made publicly viewable solely for transparency, security
+auditing, and verification that Playtested operates safely and without malicious
+intent.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. PERMITTED USE
+   You are granted a limited, non-exclusive, revocable license to:
+   a) View, read, and inspect the source code in this repository to verify its
+      security, privacy, authentication flows, and scoring logic.
+   b) Report bugs, vulnerabilities, or submit feedback/pull requests to this
+      official repository.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. RESTRICTIONS
+   Without prior express written permission from the copyright holder, you may NOT:
+   a) Copy, host, deploy, operate, or publish any public, private-community, or
+      commercial instance or clone of this software or website.
+   b) Redistribute, sublicense, sell, or repackage the source code, compiled
+      artifacts, database snapshots, or design assets in whole or in part.
+   c) Create or distribute derivative works based on this codebase.
+   d) Use the "Playtested" name, logo, domain, or visual identity.
+
+3. NO WARRANTY
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING
+   FROM OR IN CONNECTION WITH THIS SOFTWARE.
