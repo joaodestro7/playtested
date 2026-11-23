@@ -643,6 +643,7 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
   let totalHours = 0;
   let best = matches[0];
   let needsLookup = false;
+  let maxAchPct = 0;
 
   for (const m of matches) {
     const mIds = [m.externalId, ...(Array.isArray(m.externalIds) ? m.externalIds : [])].filter(Boolean).map(String);
@@ -660,12 +661,14 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
       best = m;
     }
     if (m.needsHoursLookup) needsLookup = true;
+    if ((Number(m.achievementPct) || 0) > maxAchPct) maxAchPct = Number(m.achievementPct) || 0;
   }
 
   return {
     ...best,
     externalIds: allExternalIds,
     hours: Math.round(totalHours * 10) / 10,
+    achievementPct: maxAchPct,
     needsHoursLookup: needsLookup,
   };
 }
@@ -711,14 +714,16 @@ function computeScores(gameId) {
 /**
  * Evaluates whether a verified owner meets the playtime gate for a game:
  * - Standard games: >= MIN_HOURS (2h)
- * - Short narrative/indie titles (lib/short-games.js): >= 0.5h (30 min)
- * - Achievement progress unlock (Steam & Xbox): >= 0.5h AND >= 50% achievements unlocked
+ * - Curated short narrative/indie titles (lib/short-games.js): >= 0.5h (30 min)
+ * - Universal achievement / trophy progress unlock (Steam, PlayStation, Xbox):
+ *   any recorded playtime (>= 0.1h / ~6 min) AND >= 50% achievements/trophies unlocked
  */
-async function evaluateOwnershipEligibility(account, platform, game, own) {
+async function evaluateOwnershipEligibility(account, platform, game, own, { forceRefresh = false } = {}) {
   const refGame = game || { name: own.name, canonicalKey: own.canonicalKey };
   const shortTitle = isShortGame(refGame);
   const minHours = getMinHoursForGame(refGame, MIN_HOURS);
   const hours = Number(own.hours) || 0;
+  let achievementPct = Number(own.achievementPct) || 0;
 
   if (hours >= minHours) {
     return {
@@ -727,32 +732,27 @@ async function evaluateOwnershipEligibility(account, platform, game, own) {
       minHours,
       shortGame: shortTitle,
       achievementUnlock: false,
-      achievementPct: Number(own.achievementPct) || 0,
+      achievementPct,
     };
   }
 
-  // Automatic short-game unlock via >=50% achievements when at least 30 min played
+  // Universal short/micro-game unlock via >= 50% achievements/trophies on Steam, PlayStation, or Xbox
   if (hours >= ACHIEVEMENT_UNLOCK_MIN_HOURS) {
-    if (platform === 'pc' && own.externalId && STEAM_KEY) {
-      const ach = await fetchSteamAchievementProgress(account.id, own.externalId, STEAM_KEY);
-      if (ach && ach.total > 0 && ach.percent >= ACHIEVEMENT_UNLOCK_PCT) {
-        return {
-          eligible: true,
-          hours,
-          minHours: ACHIEVEMENT_UNLOCK_MIN_HOURS,
-          shortGame: false,
-          achievementUnlock: true,
-          achievementPct: ach.percent,
-        };
+    if (platform === 'pc' && own.externalId) {
+      const ach = await fetchSteamAchievementProgress(account.id, own.externalId, STEAM_KEY, { forceRefresh });
+      if (ach && ach.total > 0) {
+        achievementPct = ach.percent;
+        own.achievementPct = ach.percent;
       }
-    } else if (platform === 'xbox' && Number(own.achievementPct) >= ACHIEVEMENT_UNLOCK_PCT) {
+    }
+    if (achievementPct >= ACHIEVEMENT_UNLOCK_PCT) {
       return {
         eligible: true,
         hours,
         minHours: ACHIEVEMENT_UNLOCK_MIN_HOURS,
-        shortGame: false,
+        shortGame: shortTitle,
         achievementUnlock: true,
-        achievementPct: Number(own.achievementPct),
+        achievementPct,
       };
     }
   }
@@ -763,7 +763,7 @@ async function evaluateOwnershipEligibility(account, platform, game, own) {
     minHours,
     shortGame: shortTitle,
     achievementUnlock: false,
-    achievementPct: Number(own.achievementPct) || 0,
+    achievementPct,
   };
 }
 
@@ -1745,7 +1745,9 @@ app.get('/api/eligibility/:id', async (req, res) => {
           own.needsHoursLookup = false;
         }
         if (own) {
-          const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own);
+          const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own, {
+            forceRefresh: shouldRefresh,
+          });
           return [
             p,
             {
@@ -1838,13 +1840,17 @@ app.get('/api/library', async (req, res) => {
       const refForShort = matched || { name: item.name, canonicalKey: item.canonicalKey };
       const itemMinHours = getMinHoursForGame(refForShort, MIN_HOURS);
       const itemAchUnlock =
-        activePlat === 'xbox' &&
         Number(item.hours) >= ACHIEVEMENT_UNLOCK_MIN_HOURS &&
         Number(item.achievementPct) >= ACHIEVEMENT_UNLOCK_PCT;
       const prev = enrichedByCanonical.get(canonicalId);
       if (prev) {
         prev.hours = Math.round((prev.hours + (Number(item.hours) || 0)) * 10) / 10;
-        prev.eligible = prev.hours >= prev.minHours || prev.achievementUnlock || itemAchUnlock;
+        prev.achievementPct = Math.max(Number(prev.achievementPct) || 0, Number(item.achievementPct) || 0);
+        prev.achievementUnlock =
+          prev.achievementUnlock ||
+          itemAchUnlock ||
+          (prev.hours >= ACHIEVEMENT_UNLOCK_MIN_HOURS && prev.achievementPct >= ACHIEVEMENT_UNLOCK_PCT);
+        prev.eligible = prev.hours >= prev.minHours || prev.achievementUnlock;
         if (!prev.cover && item.cover) prev.cover = item.cover;
         continue;
       }
@@ -1856,6 +1862,7 @@ app.get('/api/library', async (req, res) => {
         hours: item.hours,
         minHours: itemMinHours,
         shortGame: isShortGame(refForShort),
+        achievementPct: Number(item.achievementPct) || 0,
         achievementUnlock: itemAchUnlock,
         eligible: item.hours >= itemMinHours || itemAchUnlock,
         reviewed: Boolean(rev),
@@ -1950,14 +1957,15 @@ app.post('/api/review', async (req, res) => {
             own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
             own.needsHoursLookup = false;
           }
-          evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
+          evalRes = await evaluateOwnershipEligibility(account, platform, game, own, { forceRefresh: true });
         }
       }
       if (!evalRes.eligible) {
+        const achWord = platform === 'ps' ? 'trophies' : 'achievements';
         return res.status(403).json({
           error: evalRes.shortGame
-            ? `Short title requires at least ${evalRes.minHours}h (30 min) of verified playtime on ${platLabel} to review. You currently have ${evalRes.hours}h.`
-            : `You need at least ${evalRes.minHours}h of verified playtime on ${platLabel} (or 0.5h+ with 50%+ achievements on Steam/Xbox) to review. You currently have ${evalRes.hours}h.`,
+            ? `Short title requires at least ${evalRes.minHours}h (30 min) of verified playtime on ${platLabel}, or 50%+ ${achWord} with recorded playtime. You currently have ${evalRes.hours}h.`
+            : `You need at least ${evalRes.minHours}h of verified playtime on ${platLabel}, or 50%+ ${achWord} with recorded playtime to review. You currently have ${evalRes.hours}h${evalRes.achievementPct ? ` (${evalRes.achievementPct}% ${achWord})` : ''}.`,
         });
       }
       verifiedHours = evalRes.hours;
