@@ -78,6 +78,7 @@ const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || '';
 const DONATE_URL = process.env.DONATE_URL || '';
 const BASE = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
 const MIN_HOURS = Number(process.env.MIN_HOURS) || 2;
+const DAILY_INDEX_LIMIT = Number(process.env.DAILY_INDEX_LIMIT) || 1000;
 const NO_SYNC = process.env.NO_SYNC === '1';
 
 const DB_FILE = path.join(__dirname, 'db.json');
@@ -88,6 +89,7 @@ const db = {
   bad: {},
   genOffsets: {},
   marketing: {},
+  indexState: null,
 };
 let byId = new Map();
 
@@ -329,29 +331,38 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// Optional Cloud Scheduler cron endpoint to refresh trending & index a cross-gen batch
+// Public read-only status of the daily catalog indexer
+app.get('/api/index/status', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const st = ensureIndexState();
+  const bucketsDone = Object.values(st.wikidataDoneBuckets || {}).filter(Boolean).length;
+  res.json({
+    indexed: db.games.filter(isValidGame).length,
+    totalInDb: db.games.length,
+    mode: st.mode,
+    date: st.date,
+    addedToday: st.addedToday,
+    dailyLimit: DAILY_INDEX_LIMIT,
+    remainingToday: Math.max(0, DAILY_INDEX_LIMIT - st.addedToday),
+    wikidataBucketsDone: `${bucketsDone}/${GENERATION_BUCKETS.length}`,
+    steamCursor: st.steamCursor,
+    steamKnownTotal: APPS.length,
+    steamDone: Boolean(st.steamDone),
+    running: dailyIndexRunning,
+    lastRunAt: st.lastRunAt ? new Date(st.lastRunAt).toISOString() : null,
+    totalAddedEver: st.totalAddedEver || 0,
+  });
+});
+
+// Optional Cloud Scheduler / Cron endpoint to trigger a bounded daily indexing batch
 app.post('/api/cron/sync', async (req, res) => {
   if (!CRON_SECRET || req.headers['x-cron-secret'] !== CRON_SECRET) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   try {
-    await refreshCatalog();
-    const bucket = GENERATION_BUCKETS[Math.floor(Date.now() / 3600000) % GENERATION_BUCKETS.length];
-    const offset = Number(db.genOffsets[bucket.qid] || 0);
-    const qids = await fetchGenerationQids(bucket.qid, offset, 35);
-    const hydrated = await hydrateWikidataEntities(qids);
-    const upserted = [];
-    for (const item of hydrated) {
-      if (isValidGame(item)) upserted.push(upsertCanonicalGame(db, byId, item));
-    }
-    db.genOffsets[bucket.qid] = qids.length ? offset + qids.length : 0;
-    if (store.isPostgres) {
-      await store.upsertGamesBatch(upserted);
-      await store.setKv('genOffsets', db.genOffsets);
-    } else {
-      save();
-    }
-    res.json({ ok: true, bucket: bucket.label, synced: upserted.length, total: db.games.length });
+    const requestedMax = Math.min(Math.max(10, Number(req.query.limit || req.body?.limit || 200)), DAILY_INDEX_LIMIT);
+    const summary = await runDailyIndexBatch(requestedMax);
+    res.json({ ok: true, ...summary, total: db.games.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -943,12 +954,10 @@ async function fetchSteamDetails(id) {
     return null;
   }
   const d = entry.data;
-  const descriptors = d.content_descriptors?.ids || [];
-  if (descriptors.includes(3)) return null;
   return {
     name: d.name,
     date: parseDate(d.release_date?.date),
-    developer: (d.developers || []).join(', '),
+    developer: (d.developers || []).join(', ') || (d.publishers || []).filter(Boolean).join(', ') || 'Steam Release',
     publisher: (d.publishers || []).filter(Boolean).join(', '),
     hdr: d.header_image || '',
   };
@@ -1115,14 +1124,19 @@ async function searchSteamStorePublic(term) {
   const res = await fetchJsonSafe(
     `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(term)}&l=english&cc=us`
   );
-  const items = (res.items || []).filter((x) => x.type === 'app' && x.id).slice(0, 5);
+  const items = (res.items || []).filter((x) => x.type === 'app' && x.id).slice(0, 8);
+  const found = [];
   await Promise.all(
-    items.map((x) => {
+    items.map(async (x) => {
       const sid = String(x.id);
-      if (isBadId(sid) || (byId.has(sid) && isValidGame(byId.get(sid)))) return null;
-      return ingestSteamGame(sid).catch(() => {});
+      if (byId.has(sid) && isValidGame(byId.get(sid))) return;
+      // Clear stale bad-id entry on explicit user search so previously filtered games load
+      delete db.bad[sid];
+      const g = await ingestSteamGame(sid).catch(() => null);
+      if (g) found.push(g);
     })
   );
+  return found;
 }
 
 const searchCache = new Map();
@@ -1387,7 +1401,11 @@ app.get('/api/games', async (req, res) => {
             }
           })
           .catch(() => {}),
-        searchSteamStorePublic(searchTerm).catch(() => {}),
+        searchSteamStorePublic(searchTerm)
+          .then((found) => {
+            for (const item of found || []) newlyDiscovered.push(item);
+          })
+          .catch(() => {}),
       ];
 
       if (APPS.length) {
@@ -2005,6 +2023,282 @@ async function repairCatalogDatesOnBoot() {
   }
 }
 
+// ============================================================================
+// RESUMABLE DAILY 1,000-GAME AUTO-INDEXER (Backfill -> Daily New Releases Only)
+// Runs gently in the background on Render & locally; persists exact cursors to
+// PostgreSQL kv_state so restarts resume cleanly without duplicating work.
+// ============================================================================
+let dailyIndexRunning = false;
+
+function ensureIndexState() {
+  const today = todayIso();
+  if (!db.indexState || typeof db.indexState !== 'object') {
+    db.indexState = {
+      date: today,
+      addedToday: 0,
+      bucketIdx: 0,
+      wikidataDoneBuckets: {},
+      steamCursor: 0,
+      steamDone: false,
+      mode: 'backfill',
+      dailyReleasesDate: '',
+      lastRunAt: 0,
+      totalAddedEver: 0,
+    };
+  }
+  if (db.indexState.date !== today) {
+    db.indexState.date = today;
+    db.indexState.addedToday = 0;
+  }
+  return db.indexState;
+}
+
+async function persistIndexState(upsertedGames = []) {
+  save();
+  if (store.isPostgres) {
+    if (upsertedGames.length) {
+      await store.upsertGamesBatch(upsertedGames).catch(() => {});
+    }
+    await store.setKv('genOffsets', db.genOffsets).catch(() => {});
+    await store.setKv('indexState', db.indexState).catch(() => {});
+  }
+}
+
+async function refreshDailySteamReleases() {
+  const added = [];
+  // 1. Live Steam concurrent player trending ranks
+  const charts = await fetchJsonSafe('https://api.steampowered.com/ISteamChartsService/GetMostPlayedGames/v1/');
+  const ranks = charts.response?.ranks || [];
+  if (ranks.length) {
+    TREND = {};
+    for (const row of ranks) TREND[String(row.appid)] = row.peak_in_game || 0;
+    db.games.forEach((g) => {
+      const sid = g.platformIds?.steam || g.id;
+      if (TREND[String(sid)]) g.trend = TREND[String(sid)];
+    });
+  }
+
+  // 2. Today's Steam new releases & top sellers
+  const featured = await fetchJsonSafe('https://store.steampowered.com/api/featuredcategories?cc=us&l=english');
+  const freshIds = [
+    ...new Set(
+      ['new_releases', 'top_sellers']
+        .flatMap((k) => (featured[k]?.items || []).map((x) => String(x.id)))
+        .filter((id) => /^\d+$/.test(id))
+    ),
+  ];
+
+  for (const sid of freshIds) {
+    if (byId.has(sid) && isValidGame(byId.get(sid))) continue;
+    try {
+      const g = await ingestSteamGame(sid);
+      if (g) added.push(g);
+    } catch {
+      // Transient Steam hiccup — skip
+    }
+    await sleep(600);
+  }
+  return added;
+}
+
+async function ensureSteamAppListLoaded() {
+  if (APPS.length || !STEAM_KEY) return APPS.length;
+  let lastAppId = 0;
+  const apps = [];
+  for (;;) {
+    try {
+      const res = await steamApi(
+        `IStoreService/GetAppList/v1/?include_games=true&max_results=50000&last_appid=${lastAppId}`
+      );
+      const page = res.response || {};
+      apps.push(
+        ...(page.apps || [])
+          .filter((a) => a.name)
+          .map((a) => [String(a.appid), a.name, a.name.toLowerCase()])
+      );
+      if (!page.have_more_results) break;
+      lastAppId = page.last_appid;
+    } catch (err) {
+      console.warn('[daily-index] GetAppList interrupted:', err.message);
+      break;
+    }
+  }
+  if (apps.length) {
+    // Newest Steam AppIDs first so recent releases are indexed ahead of ancient shovelware
+    apps.sort((a, b) => Number(b[0]) - Number(a[0]));
+    APPS = apps;
+  }
+  return APPS.length;
+}
+
+async function runDailyIndexBatch(maxForThisRun = DAILY_INDEX_LIMIT) {
+  if (dailyIndexRunning) return { skipped: true, reason: 'already_running' };
+  dailyIndexRunning = true;
+
+  const st = ensureIndexState();
+  const today = todayIso();
+  let addedThisRun = 0;
+  const targetRemaining = Math.min(maxForThisRun, Math.max(0, DAILY_INDEX_LIMIT - st.addedToday));
+
+  try {
+    // Step 1: Always sync today's new releases & trending ranks once per day
+    if (st.dailyReleasesDate !== today) {
+      const fresh = await refreshDailySteamReleases();
+      st.dailyReleasesDate = today;
+      st.addedToday += fresh.length;
+      st.totalAddedEver = (st.totalAddedEver || 0) + fresh.length;
+      addedThisRun += fresh.length;
+      await persistIndexState(fresh);
+      if (fresh.length) {
+        console.log(`[daily-index] Synced ${fresh.length} fresh daily Steam releases.`);
+      }
+    }
+
+    // If we already finished the full historical backfill, stay in daily-new-releases-only mode!
+    if (st.mode === 'daily_only' || st.addedToday >= DAILY_INDEX_LIMIT || targetRemaining <= 0) {
+      st.lastRunAt = Date.now();
+      await persistIndexState([]);
+      return { mode: st.mode, addedThisRun, addedToday: st.addedToday, dailyLimit: DAILY_INDEX_LIMIT };
+    }
+
+    // Step 2: Wikidata cross-generation backfill (PS1-PS5, Xbox-Series X|S, PC — fast & high quality)
+    let pendingBuckets = GENERATION_BUCKETS.filter((b) => !st.wikidataDoneBuckets?.[b.qid]);
+    let wdBatchBuffer = [];
+
+    while (pendingBuckets.length && addedThisRun < targetRemaining && st.addedToday < DAILY_INDEX_LIMIT) {
+      const bucket = pendingBuckets[st.bucketIdx % pendingBuckets.length];
+      st.bucketIdx = (st.bucketIdx + 1) % pendingBuckets.length;
+      const offset = Number(db.genOffsets[bucket.qid] || 0);
+
+      try {
+        const qids = await fetchGenerationQids(bucket.qid, offset, 50);
+        if (!qids.length) {
+          st.wikidataDoneBuckets = { ...(st.wikidataDoneBuckets || {}), [bucket.qid]: true };
+          pendingBuckets = GENERATION_BUCKETS.filter((b) => !st.wikidataDoneBuckets?.[b.qid]);
+          await persistIndexState(wdBatchBuffer);
+          wdBatchBuffer = [];
+          continue;
+        }
+
+        const hydrated = await hydrateWikidataEntities(qids);
+        let newlyAdded = 0;
+        for (const item of hydrated) {
+          if (!isValidGame(item)) continue;
+          const before = db.games.length;
+          const savedGame = upsertCanonicalGame(db, byId, item);
+          if (db.games.length > before) {
+            newlyAdded++;
+            wdBatchBuffer.push(savedGame);
+          }
+        }
+        db.genOffsets[bucket.qid] = offset + qids.length;
+        if (qids.length < 50) {
+          st.wikidataDoneBuckets = { ...(st.wikidataDoneBuckets || {}), [bucket.qid]: true };
+          pendingBuckets = GENERATION_BUCKETS.filter((b) => !st.wikidataDoneBuckets?.[b.qid]);
+        }
+
+        addedThisRun += newlyAdded;
+        st.addedToday += newlyAdded;
+        st.totalAddedEver = (st.totalAddedEver || 0) + newlyAdded;
+        st.lastRunAt = Date.now();
+
+        if (wdBatchBuffer.length >= 25 || !pendingBuckets.length) {
+          await persistIndexState(wdBatchBuffer);
+          wdBatchBuffer = [];
+        }
+        await sleep(1600);
+      } catch (err) {
+        console.warn(`[daily-index] Wikidata [${bucket.label}] paused:`, err.message);
+        await persistIndexState(wdBatchBuffer);
+        wdBatchBuffer = [];
+        break;
+      }
+    }
+    if (wdBatchBuffer.length) {
+      await persistIndexState(wdBatchBuffer);
+      wdBatchBuffer = [];
+    }
+
+    // Step 3: Steam full-catalog backfill (resumes from steamCursor once Wikidata buckets finish or after Wikidata pause)
+    if (addedThisRun < targetRemaining && st.addedToday < DAILY_INDEX_LIMIT && STEAM_KEY && !st.steamDone) {
+      await ensureSteamAppListLoaded();
+      let steamBuffer = [];
+      let checkedInLoop = 0;
+
+      while (
+        st.steamCursor < APPS.length &&
+        addedThisRun < targetRemaining &&
+        st.addedToday < DAILY_INDEX_LIMIT &&
+        checkedInLoop < targetRemaining * 4
+      ) {
+        const sid = APPS[st.steamCursor][0];
+        st.steamCursor++;
+        checkedInLoop++;
+
+        if (isBadId(sid) || (byId.has(sid) && isValidGame(byId.get(sid)))) continue;
+        try {
+          const before = db.games.length;
+          const g = await ingestSteamGame(sid);
+          if (g && db.games.length > before) {
+            addedThisRun++;
+            st.addedToday++;
+            st.totalAddedEver = (st.totalAddedEver || 0) + 1;
+            steamBuffer.push(g);
+          }
+          if (steamBuffer.length >= 20) {
+            st.lastRunAt = Date.now();
+            await persistIndexState(steamBuffer);
+            steamBuffer = [];
+          }
+          await sleep(1400);
+        } catch {
+          // Transient Steam rate limit — back off cleanly and resume next cycle
+          st.steamCursor = Math.max(0, st.steamCursor - 1);
+          break;
+        }
+      }
+      if (steamBuffer.length) {
+        st.lastRunAt = Date.now();
+        await persistIndexState(steamBuffer);
+      }
+      if (APPS.length && st.steamCursor >= APPS.length) {
+        st.steamDone = true;
+      }
+    }
+
+    // Switch automatically to daily_only once BOTH Wikidata and Steam backfills are caught up!
+    const allWdDone = GENERATION_BUCKETS.every((b) => Boolean(st.wikidataDoneBuckets?.[b.qid]));
+    if (allWdDone && (st.steamDone || !STEAM_KEY)) {
+      st.mode = 'daily_only';
+      console.log('[daily-index] Full historical backlog indexed! Switched to daily_only mode.');
+    }
+
+    st.lastRunAt = Date.now();
+    await persistIndexState([]);
+    console.log(
+      `[daily-index] Batch finished: +${addedThisRun} games (today ${st.addedToday}/${DAILY_INDEX_LIMIT}, total ${db.games.length}, mode=${st.mode})`
+    );
+    return { mode: st.mode, addedThisRun, addedToday: st.addedToday, dailyLimit: DAILY_INDEX_LIMIT };
+  } finally {
+    dailyIndexRunning = false;
+  }
+}
+
+function startDailyIndexScheduler() {
+  // Run a polite resumable chunk shortly after boot (if today's 1,000-game quota isn't met yet)
+  // and re-check every hour so each new UTC day automatically indexes up to 1,000 new games.
+  const tick = () => {
+    const st = ensureIndexState();
+    if (st.addedToday < DAILY_INDEX_LIMIT || st.dailyReleasesDate !== todayIso()) {
+      runDailyIndexBatch(DAILY_INDEX_LIMIT).catch((err) =>
+        console.warn('[daily-index] Cycle skipped:', err.message)
+      );
+    }
+  };
+  setTimeout(tick, 12000);
+  setInterval(tick, 3600000);
+}
+
 async function startServer() {
   const info = await store.init(db);
   const deduped = deduplicateCatalog(db);
@@ -2036,14 +2330,10 @@ async function startServer() {
   app.listen(PORT, () => {
     console.log(
       `Playtested running at ${BASE} [storage=${info.mode}, games=${db.games.length}, reviews=${db.reviews.length}]` +
-        (IS_CLOUD_HOST ? ' [Cloud managed mode]' : '')
+        (IS_CLOUD_HOST ? ' [Cloud managed mode + daily 1k indexer]' : '')
     );
-    if (!NO_SYNC && !IS_CLOUD_HOST) {
-      const go = () => refreshCatalog().catch((e) => console.log('Refresh skipped:', e.message));
-      go();
-      setInterval(go, 21600000);
-      catalogWorker();
-      generationWorker();
+    if (!NO_SYNC) {
+      startDailyIndexScheduler();
     }
   });
 }
