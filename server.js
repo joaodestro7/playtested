@@ -60,6 +60,7 @@ const {
   searchWikidataGames,
   hydrateWikidataEntities,
   fetchGenerationQids,
+  fetchWikipediaCovers,
 } = require('./lib/wikidata');
 const { PlaytestedStore } = require('./lib/store');
 
@@ -963,18 +964,68 @@ async function fetchSteamDetails(id) {
   };
 }
 
+// Reject 404s AND Valve's 1,655-byte blank placeholder library_600x900.jpg responses
+const MIN_VALID_COVER_BYTES = 3500;
+
 async function checkImage(url) {
+  if (!url) return false;
   try {
     const res = await fetch(url, {
       headers: { Range: 'bytes=0-0' },
       signal: AbortSignal.timeout(8000),
     });
-    const ok = res.ok && /^image\//.test(res.headers.get('content-type') || '');
+    const ct = res.headers.get('content-type') || '';
+    const cr = res.headers.get('content-range') || '';
+    const cl = Number(res.headers.get('content-length') || 0);
+    const totalMatch = /\/(\d+)$/.exec(cr);
+    const totalBytes = totalMatch ? Number(totalMatch[1]) : cl;
     if (res.body) res.body.cancel().catch(() => {});
-    return ok;
+    if (!res.ok || !/^image\//.test(ct)) return false;
+    if (totalBytes > 0 && totalBytes < MIN_VALID_COVER_BYTES) return false;
+    return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Fetches official hashed vertical Steam covers (library_capsule_2x / library_capsule)
+ * in batch (up to 80 AppIDs per request) via Valve's free zero-key IStoreBrowseService.
+ * Solves Valve's post-2024 content-hashed asset URLs where legacy library_600x900.jpg
+ * returns a 1,655-byte blank placeholder JPEG (e.g. Battlefield 6).
+ */
+async function fetchSteamBrowseCoversBatch(appIds) {
+  const clean = [...new Set((appIds || []).map(String).filter((x) => /^\d+$/.test(x)))];
+  const map = new Map();
+  if (!clean.length) return map;
+
+  for (let i = 0; i < clean.length; i += 80) {
+    const chunk = clean.slice(i, i + 80);
+    try {
+      const inputJson = JSON.stringify({
+        ids: chunk.map((id) => ({ appid: Number(id) })),
+        context: { language: 'english', country_code: 'US' },
+        data_request: { include_assets: true },
+      });
+      const data = await fetchJsonSafe(
+        `https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(inputJson)}`
+      );
+      for (const item of data.response?.store_items || []) {
+        const aid = String(item.appid || '');
+        if (!aid || aid === '0') continue;
+        const a = item.assets || {};
+        const fmt = String(a.asset_url_format || '');
+        const file = a.library_capsule_2x || a.library_capsule || '';
+        if (fmt && file) {
+          const url = 'https://shared.akamai.steamstatic.com/store_item_assets/' + fmt.replace('${FILENAME}', file);
+          map.set(aid, url);
+        }
+      }
+    } catch {
+      // Ignore batch error gracefully
+    }
+  }
+  return map;
 }
 
 async function fetchSteamGridDB(steamId, gameName = '') {
@@ -992,10 +1043,11 @@ async function fetchSteamGridDB(steamId, gameName = '') {
         if (urls.length) return urls;
       }
     }
-    // Name-based fallback for PlayStation & Xbox exclusives
-    if (gameName) {
+    // Name-based fallback for PlayStation/Xbox exclusives or stale Wikidata Steam IDs
+    const cleanName = cleanDisplayTitle(gameName).replace(/[™®©]/g, '').trim();
+    if (cleanName) {
       const searchRes = await fetch(
-        `https://www.steamgriddb.com/api/v2/search/autocomplete/${encodeURIComponent(gameName)}`,
+        `https://www.steamgriddb.com/api/v2/search/autocomplete/${encodeURIComponent(cleanName)}`,
         { headers, signal: AbortSignal.timeout(8000) }
       );
       if (searchRes.ok) {
@@ -1021,16 +1073,43 @@ async function fetchSteamGridDB(steamId, gameName = '') {
 
 async function pickCover(id, hdr, name = '', steamId = '') {
   const sid = steamId || (/^\d+$/.test(String(id)) ? String(id) : '');
-  const candidates = [
-    ...(sid ? HOSTS.map((h) => `https://${h}/steam/apps/${sid}/library_600x900.jpg`) : []),
-    ...(hdr ? [hdr] : []),
-    ...(sid ? HOSTS.map((h) => `https://${h}/steam/apps/${sid}/header.jpg`) : []),
-  ];
+  const candidates = [];
+
+  // 1. Official hashed vertical Steam cover (IStoreBrowseService)
+  if (sid) {
+    const browseMap = await fetchSteamBrowseCoversBatch([sid]).catch(() => new Map());
+    const hashed = browseMap.get(sid);
+    if (hashed) candidates.push(hashed);
+    candidates.push(...HOSTS.map((h) => `https://${h}/steam/apps/${sid}/library_600x900.jpg`));
+  }
+
   for (const url of candidates) {
     if (await checkImage(url)) return url;
   }
+
+  // 2. SteamGridDB 600x900 portrait cover (by Steam ID or cleaned game name)
   const sgdbUrls = await fetchSteamGridDB(sid, name);
   for (const url of sgdbUrls) {
+    if (await checkImage(url)) return url;
+  }
+
+  // 3. Wikipedia box art fallback
+  const cleanName = cleanDisplayTitle(name).replace(/[™®©]/g, '').trim();
+  if (cleanName) {
+    try {
+      const wikiMap = await fetchWikipediaCovers([cleanName, `${cleanName} (video game)`]);
+      for (const wUrl of wikiMap.values()) {
+        if (await checkImage(wUrl)) return wUrl;
+      }
+    } catch {}
+  }
+
+  // 4. Last-resort landscape Steam header
+  const lastResort = [
+    ...(hdr ? [hdr] : []),
+    ...(sid ? HOSTS.map((h) => `https://${h}/steam/apps/${sid}/header.jpg`) : []),
+  ];
+  for (const url of lastResort) {
     if (await checkImage(url)) return url;
   }
   return '';
@@ -2284,9 +2363,63 @@ async function runDailyIndexBatch(maxForThisRun = DAILY_INDEX_LIMIT) {
   }
 }
 
+/**
+ * Background Cover Audit & Auto-Repair
+ * Prioritizes all reviewed games + top trending/newest games with legacy Steam URLs,
+ * replacing Valve's 1,655-byte blank placeholders and 404 covers with verified
+ * hashed Steam library_capsule_2x, SteamGridDB 600x900, or Wikipedia covers.
+ */
+async function repairBrokenCoversBackground() {
+  const reviewedIds = new Set(db.reviews.map((r) => String(r.gameId)));
+  const targets = [
+    ...db.games.filter((g) => reviewedIds.has(String(g.id))),
+    ...db.games
+      .filter((g) => !reviewedIds.has(String(g.id)) && /library_600x900\.jpg$/i.test(g.cover || ''))
+      .sort((a, b) => (b.trend || 0) - (a.trend || 0) || String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, 350),
+  ];
+
+  // Fast batch lookup via Valve's IStoreBrowseService for all numeric Steam IDs in targets
+  const steamTargetIds = targets
+    .map((g) => String(g.platformIds?.steam || (/^\d+$/.test(String(g.id)) ? g.id : '')))
+    .filter((id) => /^\d+$/.test(id));
+  const browseCovers = await fetchSteamBrowseCoversBatch(steamTargetIds).catch(() => new Map());
+
+  const fixed = [];
+  for (let i = 0; i < targets.length; i += 10) {
+    const slice = targets.slice(i, i + 10);
+    await Promise.all(
+      slice.map(async (g) => {
+        if (await checkImage(g.cover)) return;
+        const sid = String(g.platformIds?.steam || (/^\d+$/.test(String(g.id)) ? g.id : ''));
+        let nextCover = browseCovers.get(sid) || '';
+        if (nextCover && !(await checkImage(nextCover))) nextCover = '';
+        if (!nextCover) {
+          nextCover = await pickCover(g.id, g.hdr, g.name, sid);
+        }
+        if (nextCover && nextCover !== g.cover) {
+          g.cover = nextCover;
+          fixed.push(g);
+        }
+      })
+    );
+  }
+
+  if (fixed.length) {
+    console.log(`[cover-repair] Fixed ${fixed.length} broken/blank game cover(s).`);
+    save();
+    if (store.isPostgres) {
+      await store.upsertGamesBatch(fixed).catch(() => {});
+    }
+  }
+}
+
 function startDailyIndexScheduler() {
   // Run a polite resumable chunk shortly after boot (if today's 1,000-game quota isn't met yet)
   // and re-check every hour so each new UTC day automatically indexes up to 1,000 new games.
+  setTimeout(() => {
+    repairBrokenCoversBackground().catch((err) => console.warn('[cover-repair] Skipped:', err.message));
+  }, 5000);
   const tick = () => {
     const st = ensureIndexState();
     if (st.addedToday < DAILY_INDEX_LIMIT || st.dailyReleasesDate !== todayIso()) {
@@ -2295,7 +2428,7 @@ function startDailyIndexScheduler() {
       );
     }
   };
-  setTimeout(tick, 12000);
+  setTimeout(tick, 18000);
   setInterval(tick, 3600000);
 }
 
