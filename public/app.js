@@ -43,63 +43,49 @@
   const ST1 = 'https://cdn.akamai.steamstatic.com/steam/apps/';
   const ST2 = 'https://cdn.cloudflare.steamstatic.com/steam/apps/';
 
-  // High-profile recent releases cycling in the hero showcase (verified 4K Steam library_hero_2x key art)
+  // Major 2026 releases cycling in the hero showcase (verified 4K key art + Playtested catalog IDs)
   const HERO_RECENT_GAMES = [
     {
-      id: '2807960',
-      name: 'Battlefield™ 6',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2807960/7165682cb6055d92bd2aafd940edbe70cb33ff6b/library_hero_2x.jpg?t=1794834044',
+      id: '3764200',
+      name: 'Resident Evil Requiem',
+      sub: '2026 RELEASE',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3764200/90d7401b621e98bd61b2f66616ffafcb58d75fd7/library_hero_2x.jpg?t=1779840172',
+      pos: 'center 24%',
+    },
+    {
+      id: 'wd-Q23648408',
+      name: 'Grand Theft Auto VI',
+      sub: '2026 RELEASE',
+      art: '/images/hero-gta6.jpg',
+      pos: 'center center',
+    },
+    {
+      id: '3321460',
+      name: 'Crimson Desert',
+      sub: '2026 RELEASE',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3321460/fa05258232b2b970e2730d2ad5917842e914283c/library_hero_2x.jpg?t=1794478066',
+      pos: 'center 24%',
+    },
+    {
+      id: '2483190',
+      name: 'Forza Horizon 6',
+      sub: '2026 RELEASE',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2483190/3eeb9970d8a8b6634d114b43e0edba78a7ee1eb6/library_hero_2x.jpg?t=1795104806',
+      pos: 'center 42%',
+    },
+    {
+      id: '3357650',
+      name: 'PRAGMATA',
+      sub: '2026 RELEASE',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3357650/91c6fc49c0d73d54e798a7a11ad5f6625734a703/library_hero_2x.jpg?t=1791454600',
       pos: 'center 26%',
     },
     {
-      id: '1903340',
-      name: 'Clair Obscur: Expedition 33',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1903340/library_hero_2x.jpg?t=1794930905',
-      pos: 'center 22%',
-    },
-    {
-      id: '3280350',
-      name: 'Death Stranding 2: On the Beach',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3280350/972e2623410ee0701001fb07373fef4ea94f7b31/library_hero_2x.jpg?t=1774022345',
+      id: '3751260',
+      name: 'The Blood of Dawnwalker',
+      sub: '2026 RELEASE',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3751260/c96d68e6fdef6c58bc1b6f46dcdc4362227b6fa9/library_hero_2x.jpg?t=1795190297',
       pos: 'center 24%',
-    },
-    {
-      id: '2622380',
-      name: 'ELDEN RING NIGHTREIGN',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2622380/d3fec2085d29f131be9ff47b5aea72d360d4e453/library_hero_2x.jpg?t=1791488960',
-      pos: 'center 24%',
-    },
-    {
-      id: '1808500',
-      name: 'ARC Raiders',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1808500/ab1991cd931978e06440673952afb6f802db383d/library_hero_2x.jpg?t=1794215815',
-      pos: 'center 24%',
-    },
-    {
-      id: '3017860',
-      name: 'DOOM: The Dark Ages',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3017860/cb7f48519b32b084790349feefe924cdeaa6d027/library_hero_2x.jpg?t=1793834110',
-      pos: 'center 20%',
-    },
-    {
-      id: '2246340',
-      name: 'Monster Hunter Wilds',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2246340/6bfeb9022f014b53f7b6107aa6cd5399563cac29/library_hero_2x.jpg?t=1787549555',
-      pos: 'center 24%',
-    },
-    {
-      id: '1771300',
-      name: 'Kingdom Come: Deliverance II',
-      sub: 'RECENT RELEASE · 2025',
-      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1771300/3152bf3b89c2a63caded5d64d07729cf7b190683/library_hero_2x.jpg?t=1777975568',
-      pos: 'center 20%',
     },
   ];
 
