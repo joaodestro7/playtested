@@ -567,6 +567,7 @@
     const dev = $('#f-dev').value.trim();
     const pub = $('#f-pub').value.trim();
     const min = $('#f-min').value.trim();
+    const playtime = $('#f-playtime')?.value || '';
     const rev = $('#f-reviewed').checked;
 
     if (q) pills.push({ key: 'q', label: `Search: “${q}”` });
@@ -575,6 +576,15 @@
     if (dev) pills.push({ key: 'dev', label: `Dev: ${dev}` });
     if (pub) pills.push({ key: 'pub', label: `Pub: ${pub}` });
     if (min) pills.push({ key: 'min', label: `Score ≥ ${min}` });
+    if (playtime) {
+      const ptLabels = {
+        low: 'Low (≤ 80h)',
+        medium: 'Medium (80.1h–200h)',
+        high: 'High (200.1h–1,500h)',
+        second_job: 'Second Job (1,500h+)',
+      };
+      pills.push({ key: 'playtime', label: `Playtime: ${ptLabels[playtime] || playtime}` });
+    }
     if (rev) pills.push({ key: 'reviewed', label: 'Reviewed only' });
 
     const badge = $('#filter-count-badge');
@@ -622,6 +632,7 @@
       ['dev', '#f-dev'],
       ['pub', '#f-pub'],
       ['min', '#f-min'],
+      ['playtime', '#f-playtime'],
     ];
     for (const [k, sel] of fieldMap) {
       const val = $(sel).value.trim();
@@ -724,6 +735,7 @@
     $('#f-dev').value = '';
     $('#f-pub').value = '';
     $('#f-min').value = '';
+    if ($('#f-playtime')) $('#f-playtime').value = '';
     $('#f-reviewed').checked = false;
     state.platform = 'all';
     state.sort = 'trend';
@@ -2098,6 +2110,12 @@
       state.page = 1;
       loadCatalog();
     });
+    if ($('#f-playtime')) {
+      $('#f-playtime').addEventListener('change', () => {
+        state.page = 1;
+        loadCatalog();
+      });
+    }
     $('#f-sort').addEventListener('change', (e) => {
       state.sort = e.target.value;
       state.page = 1;
@@ -2268,6 +2286,7 @@
         if (k === 'dev') $('#f-dev').value = '';
         if (k === 'pub') $('#f-pub').value = '';
         if (k === 'min') $('#f-min').value = '';
+        if (k === 'playtime' && $('#f-playtime')) $('#f-playtime').value = '';
         if (k === 'reviewed') $('#f-reviewed').checked = false;
         state.page = 1;
         loadCatalog();

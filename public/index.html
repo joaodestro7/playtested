@@ -307,6 +307,17 @@
                 <input id="f-min" type="number" min="0" max="100" placeholder="e.g. 75" />
               </div>
 
+              <div class="filter-group">
+                <label for="f-playtime">Average Game Playtime</label>
+                <select id="f-playtime">
+                  <option value="">All</option>
+                  <option value="low">Low (≤ 80h)</option>
+                  <option value="medium">Medium (80.1h – 200h)</option>
+                  <option value="high">High (200.1h – 1,500h)</option>
+                  <option value="second_job">Second Job (1,500h+)</option>
+                </select>
+              </div>
+
               <label class="checkbox-row">
                 <input id="f-reviewed" type="checkbox" />
                 <span>Only games with verified reviews</span>
@@ -315,15 +326,6 @@
               <button type="button" id="f-reset" class="btn-outline btn-full">
                 Reset filters
               </button>
-
-              <div class="sidebar-info">
-                <div class="sidebar-info-title">Isolated equal-weight scores</div>
-                <p>
-                  Steam, PlayStation, and Xbox scores are calculated <strong>strictly individually</strong> from
-                  verified owners with <strong>2h+</strong> played. Every verified review weighs the same — playtime is
-                  shown for context, never used to skew scores.
-                </p>
-              </div>
             </aside>
 
             <div class="catalog-main">
@@ -481,6 +483,6 @@
     <!-- TOAST -->
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="/app.js?v=11"></script>
+    <script src="/app.js?v=12"></script>
   </body>
 </html>

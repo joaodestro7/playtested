@@ -748,6 +748,34 @@ async function evaluateOwnershipEligibility(_account, _platform, game, own) {
   };
 }
 
+function classifyAveragePlaytime(avgHours) {
+  if (!Number.isFinite(avgHours) || avgHours <= 0) return null;
+  if (avgHours <= 80) return 'low';
+  if (avgHours <= 200) return 'medium';
+  if (avgHours <= 1500) return 'high';
+  return 'second_job';
+}
+
+function buildAveragePlaytimeMap() {
+  const sums = new Map();
+  for (const r of db.reviews) {
+    if (r.legacy) continue;
+    const h = Number(r.hours) || 0;
+    if (h <= 0) continue;
+    const id = String(r.gameId);
+    const cur = sums.get(id) || { sum: 0, n: 0 };
+    cur.sum += h;
+    cur.n += 1;
+    sums.set(id, cur);
+  }
+  const out = new Map();
+  for (const [id, { sum, n }] of sums) {
+    const avgPlaytime = Math.round((sum / n) * 10) / 10;
+    out.set(id, { avgPlaytime, playtimeTier: classifyAveragePlaytime(avgPlaytime) });
+  }
+  return out;
+}
+
 function detectSpike(gameId) {
   const id = String(gameId);
   const list = db.reviews.filter((r) => String(r.gameId) === id);
@@ -1523,6 +1551,9 @@ app.get('/api/games', async (req, res) => {
   }
 
   const rated = new Map([...new Set(db.reviews.map((x) => String(x.gameId)))].map((id) => [id, computeScores(id)]));
+  const playtimeMap = buildAveragePlaytimeMap();
+  const rawPlaytime = String(Q.playtime || '').toLowerCase().trim();
+  const playtimeFilter = ['low', 'medium', 'high', 'second_job'].includes(rawPlaytime) ? rawPlaytime : '';
   const scoreVal = (g) => isolatedSortScore(rated.get(String(g.id)), plat);
   const revCount = (g) => totalReviewsCount(rated.get(String(g.id)), plat);
   const matchesText = (field, needle) => !needle || String(field || '').toLowerCase().includes(needle.toLowerCase());
@@ -1537,7 +1568,8 @@ app.get('/api/games', async (req, res) => {
       (!Q.from || yearOf(g) >= String(Q.from)) &&
       (!Q.to || yearOf(g) <= String(Q.to)) &&
       (!Q.reviewed || revCount(g) > 0) &&
-      (!Q.min || scoreVal(g) >= Number(Q.min))
+      (!Q.min || scoreVal(g) >= Number(Q.min)) &&
+      (!playtimeFilter || playtimeMap.get(String(g.id))?.playtimeTier === playtimeFilter)
   );
 
   const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
@@ -1562,10 +1594,13 @@ app.get('/api/games', async (req, res) => {
 
   const items = filtered.slice((page - 1) * size, page * size).map((g) => {
     const sc = rated.get(String(g.id)) || { pc: null, ps: null, xbox: null };
+    const pt = playtimeMap.get(String(g.id)) || { avgPlaytime: null, playtimeTier: null };
     return {
       ...g,
       scores: sc,
       reviews: totalReviewsCount(sc, 'all'),
+      avgPlaytime: pt.avgPlaytime,
+      playtimeTier: pt.playtimeTier,
       spike: detectSpike(g.id),
     };
   });
