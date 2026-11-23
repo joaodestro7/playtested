@@ -1608,6 +1608,7 @@
         const fresh = await res.json();
         state.modalEligibility = fresh;
         state.eligibilityCache = { [String(game.id)]: fresh };
+        syncLocalLibraryEligibility(game.id, fresh);
         // Also refresh client-side library snapshot in background so My Library reflects latest hours
         ensurePlatformLibrary(plat, { forceRefresh: true }).catch(() => {});
         updateModalEligibilityBadge();
