@@ -53,7 +53,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=6" />
+    <link rel="stylesheet" href="/styles.css?v=7" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -116,11 +116,20 @@
       <!-- DISCOVER VIEW -->
       <div id="view-discover" class="view">
         <section class="hero" id="hero-section">
-          <div class="hero-art" aria-hidden="true">
+          <div class="hero-art" id="hero-art" aria-hidden="true">
             <img
-              src="/images/after-hours.png"
+              id="hero-slide-a"
+              class="hero-slide is-active"
+              src="https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2807960/7165682cb6055d92bd2aafd940edbe70cb33ff6b/library_hero_2x.jpg?t=1794834044"
               alt=""
               fetchpriority="high"
+            />
+            <img
+              id="hero-slide-b"
+              class="hero-slide"
+              src=""
+              alt=""
+              decoding="async"
             />
           </div>
           <div class="hero-wash" aria-hidden="true"></div>
@@ -172,16 +181,17 @@
               </div>
             </div>
 
-            <div class="hero-caption" aria-hidden="true">
-              <span class="caption-cross">+</span>
+            <button type="button" class="hero-caption" id="hero-caption" aria-label="Open featured game Battlefield 6">
+              <span class="caption-cross" aria-hidden="true">+</span>
               <div>
-                <span>FOR THE LOVE OF THE GAME</span>
-                <p>Less hype. More hours played.</p>
+                <span id="hero-caption-sub">RECENT RELEASE</span>
+                <p id="hero-caption-title">Battlefield™ 6</p>
               </div>
-              <span class="caption-line"></span>
-            </div>
-            <div class="hero-index" aria-hidden="true">
-              <span>01</span> — Verified players only
+              <span class="caption-line" aria-hidden="true"></span>
+            </button>
+            <div class="hero-index" id="hero-index" aria-label="Featured hero artwork controls">
+              <span id="hero-index-num">01 / 08</span>
+              <div class="hero-dots" id="hero-dots"></div>
             </div>
           </div>
         </section>
@@ -469,6 +479,6 @@
     <!-- TOAST -->
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="/app.js?v=5"></script>
+    <script src="/app.js?v=6"></script>
   </body>
 </html>

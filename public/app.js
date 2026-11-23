@@ -43,6 +43,174 @@
   const ST1 = 'https://cdn.akamai.steamstatic.com/steam/apps/';
   const ST2 = 'https://cdn.cloudflare.steamstatic.com/steam/apps/';
 
+  // High-profile recent releases cycling in the hero showcase (verified 4K Steam library_hero_2x key art)
+  const HERO_RECENT_GAMES = [
+    {
+      id: '2807960',
+      name: 'Battlefield™ 6',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2807960/7165682cb6055d92bd2aafd940edbe70cb33ff6b/library_hero_2x.jpg?t=1794834044',
+      pos: 'center 26%',
+    },
+    {
+      id: '1903340',
+      name: 'Clair Obscur: Expedition 33',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1903340/library_hero_2x.jpg?t=1794930905',
+      pos: 'center 22%',
+    },
+    {
+      id: '3280350',
+      name: 'Death Stranding 2: On the Beach',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3280350/972e2623410ee0701001fb07373fef4ea94f7b31/library_hero_2x.jpg?t=1774022345',
+      pos: 'center 24%',
+    },
+    {
+      id: '2622380',
+      name: 'ELDEN RING NIGHTREIGN',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2622380/d3fec2085d29f131be9ff47b5aea72d360d4e453/library_hero_2x.jpg?t=1791488960',
+      pos: 'center 24%',
+    },
+    {
+      id: '1808500',
+      name: 'ARC Raiders',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1808500/ab1991cd931978e06440673952afb6f802db383d/library_hero_2x.jpg?t=1794215815',
+      pos: 'center 24%',
+    },
+    {
+      id: '3017860',
+      name: 'DOOM: The Dark Ages',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3017860/cb7f48519b32b084790349feefe924cdeaa6d027/library_hero_2x.jpg?t=1793834110',
+      pos: 'center 20%',
+    },
+    {
+      id: '2246340',
+      name: 'Monster Hunter Wilds',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2246340/6bfeb9022f014b53f7b6107aa6cd5399563cac29/library_hero_2x.jpg?t=1787549555',
+      pos: 'center 24%',
+    },
+    {
+      id: '1771300',
+      name: 'Kingdom Come: Deliverance II',
+      sub: 'RECENT RELEASE · 2025',
+      art: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1771300/3152bf3b89c2a63caded5d64d07729cf7b190683/library_hero_2x.jpg?t=1777975568',
+      pos: 'center 20%',
+    },
+  ];
+
+  function initHeroShowcase() {
+    const slideA = $('#hero-slide-a');
+    const slideB = $('#hero-slide-b');
+    const captionBtn = $('#hero-caption');
+    const captionTitle = $('#hero-caption-title');
+    const captionSub = $('#hero-caption-sub');
+    const indexNum = $('#hero-index-num');
+    const dotsWrap = $('#hero-dots');
+    if (!slideA || !slideB || !HERO_RECENT_GAMES.length) return;
+
+    const slides = HERO_RECENT_GAMES;
+    let current = 0;
+    let frontIsA = true;
+    let timer = null;
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function pad2(n) {
+      return String(n).padStart(2, '0');
+    }
+
+    function preloadNext(idx) {
+      const nextItem = slides[(idx + 1) % slides.length];
+      if (!nextItem) return;
+      const img = new Image();
+      img.src = nextItem.art;
+    }
+
+    function renderMeta(idx) {
+      const item = slides[idx];
+      if (captionTitle) captionTitle.textContent = item.name;
+      if (captionSub) captionSub.textContent = item.sub;
+      if (captionBtn) captionBtn.setAttribute('aria-label', `Open featured game ${item.name}`);
+      if (indexNum) indexNum.textContent = `${pad2(idx + 1)} / ${pad2(slides.length)}`;
+      if (dotsWrap) {
+        $$('.hero-dot-btn', dotsWrap).forEach((btn, i) => {
+          btn.classList.toggle('is-active', i === idx);
+          btn.setAttribute('aria-pressed', i === idx ? 'true' : 'false');
+        });
+      }
+    }
+
+    function goTo(nextIdx) {
+      const targetIdx = ((nextIdx % slides.length) + slides.length) % slides.length;
+      if (targetIdx === current) return;
+      const item = slides[targetIdx];
+      const incoming = frontIsA ? slideB : slideA;
+      const outgoing = frontIsA ? slideA : slideB;
+
+      const swap = () => {
+        incoming.style.objectPosition = item.pos || 'center 24%';
+        incoming.classList.add('is-active');
+        outgoing.classList.remove('is-active');
+        frontIsA = !frontIsA;
+        current = targetIdx;
+        renderMeta(current);
+        preloadNext(current);
+      };
+
+      incoming.onload = swap;
+      incoming.onerror = () => {
+        current = targetIdx;
+        renderMeta(current);
+      };
+      if (incoming.src === item.art && incoming.complete && incoming.naturalWidth > 0) {
+        swap();
+      } else {
+        incoming.src = item.art;
+      }
+    }
+
+    function restartTimer() {
+      if (timer) clearInterval(timer);
+      if (reducedMotion) return;
+      timer = setInterval(() => {
+        if (!document.hidden && state.view === 'discover') {
+          goTo(current + 1);
+        }
+      }, 6500);
+    }
+
+    if (dotsWrap) {
+      dotsWrap.innerHTML = slides
+        .map(
+          (s, i) =>
+            `<button type="button" class="hero-dot-btn${i === 0 ? ' is-active' : ''}" data-idx="${i}" aria-label="Show ${esc(s.name)}" aria-pressed="${i === 0 ? 'true' : 'false'}"></button>`
+        )
+        .join('');
+      dotsWrap.addEventListener('click', (e) => {
+        const btn = e.target.closest('.hero-dot-btn');
+        if (!btn) return;
+        goTo(Number(btn.dataset.idx));
+        restartTimer();
+      });
+    }
+
+    if (captionBtn) {
+      captionBtn.addEventListener('click', () => {
+        const item = slides[current];
+        if (item?.id) openGameModal(item.id);
+      });
+    }
+
+    slideA.style.objectPosition = slides[0].pos || 'center 24%';
+    renderMeta(0);
+    preloadNext(0);
+    restartTimer();
+  }
+
   const state = {
     view: 'discover',
     me: null,
@@ -1931,6 +2099,7 @@
 
   async function boot() {
     initEvents();
+    initHeroShowcase();
 
     const params = new URLSearchParams(window.location.search);
     initUtmAttribution(params);
