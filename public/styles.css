@@ -802,11 +802,11 @@ h2 {
   border-radius: var(--radius-md);
   overflow: hidden;
   text-align: left;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .spotlight-card:hover {
   transform: translateY(-3px);
-  border-color: var(--accent-border);
+  background: var(--panel-hover);
   box-shadow: var(--shadow-card);
 }
 .spotlight-media {
@@ -1195,11 +1195,11 @@ h2 {
   overflow: hidden;
   text-align: left;
   padding: 0;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 .game-card:hover {
   transform: translateY(-4px);
-  border-color: var(--accent-border);
+  background: var(--panel-hover);
   box-shadow: var(--shadow-card);
 }
 
@@ -1266,7 +1266,7 @@ h2 {
   border-radius: var(--radius-sm);
   background: rgba(14, 16, 19, 0.9);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--accent-border);
+  border: 0;
   color: #f4f3ee;
   font-size: 12px;
   font-weight: 600;
@@ -1523,10 +1523,10 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition: background-color 0.18s ease, transform 0.18s ease;
 }
 .feed-card:hover {
-  border-color: var(--accent-border);
+  background: var(--panel-hover);
   transform: translateY(-2px);
 }
 .feed-game-row {
@@ -1708,7 +1708,6 @@ h2 {
   text-align: left;
 }
 .library-row:hover {
-  border-color: var(--accent-border);
   background: var(--panel-hover);
 }
 .library-row img {
