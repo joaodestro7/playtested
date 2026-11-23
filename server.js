@@ -385,6 +385,7 @@ app.get('/auth/steam/return', async (req, res) => {
     session.accounts.pc = { ...account, lib: null };
     await store.saveSession(sid, session);
     await syncAccountProfileToReviews('pc', account);
+    warmLibraryCache(sid, session, 'pc');
     res.redirect('/?connected=pc');
   } catch (err) {
     console.warn('Steam login failed:', err.message);
@@ -432,6 +433,7 @@ app.get('/auth/xbox/return', async (req, res) => {
     session.accounts.xbox = { ...account, lib: null };
     await store.saveSession(sid, session);
     await syncAccountProfileToReviews('xbox', account);
+    warmLibraryCache(sid, session, 'xbox');
     res.redirect('/?connected=xbox');
   } catch (err) {
     console.warn('Xbox login failed:', err.message);
@@ -475,6 +477,7 @@ app.post('/auth/xbox/verify', async (req, res) => {
     session.xboxChallenge = null;
     await store.saveSession(sid, session);
     await syncAccountProfileToReviews('xbox', account);
+    warmLibraryCache(sid, session, 'xbox');
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'xbox' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -520,6 +523,7 @@ app.post('/auth/psn/verify', async (req, res) => {
     session.psnChallenge = null;
     await store.saveSession(sid, session);
     await syncAccountProfileToReviews('ps', account);
+    warmLibraryCache(sid, session, 'ps');
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -537,6 +541,7 @@ app.post('/auth/psn/direct', async (req, res) => {
     session.accounts.ps = { ...account, lib: null };
     await store.saveSession(sid, session);
     await syncAccountProfileToReviews('ps', account);
+    warmLibraryCache(sid, session, 'ps');
     res.json({ ok: true, account: { name: account.name, avatar: account.avatar, platform: 'ps' } });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -566,15 +571,28 @@ app.get('/auth/logout', async (req, res) => {
 // ============================================================================
 // PER-PLATFORM LIBRARY FETCHING & STRICT SCORE ISOLATION
 // ============================================================================
-async function getLibraryForPlatform(session, platform) {
+async function getLibraryForPlatform(session, platform, { sid = '', forceRefresh = false } = {}) {
   const account = session?.accounts?.[platform];
   if (!account) {
     throw new Error(`Connect your ${platform === 'pc' ? 'Steam' : platform === 'ps' ? 'PlayStation' : 'Xbox'} account first.`);
   }
-  if (platform === 'pc') return fetchSteamLibrary(account, STEAM_KEY);
-  if (platform === 'xbox') return fetchXboxLibrary(account, OPENXBL_KEY);
-  if (platform === 'ps') return fetchPsnLibrary(account, PSN_NPSSO);
-  throw new Error('Unsupported platform.');
+  const prevSyncedAt = account.lib?.t || 0;
+  let items;
+  if (platform === 'pc') items = await fetchSteamLibrary(account, STEAM_KEY, { forceRefresh });
+  else if (platform === 'xbox') items = await fetchXboxLibrary(account, OPENXBL_KEY, { forceRefresh });
+  else if (platform === 'ps') items = await fetchPsnLibrary(account, PSN_NPSSO, { forceRefresh });
+  else throw new Error('Unsupported platform.');
+
+  // Persist freshly synced compact library snapshot to session store without blocking the response
+  if (sid && account.lib?.t && account.lib.t !== prevSyncedAt) {
+    store.saveSession(sid, session).catch(() => {});
+  }
+  return items;
+}
+
+function warmLibraryCache(sid, session, platform) {
+  if (!sid || !session?.accounts?.[platform]) return;
+  getLibraryForPlatform(session, platform, { sid }).catch(() => {});
 }
 
 function findOwnedGameInLibrary(libItems, game, gameId) {
@@ -1656,115 +1674,138 @@ app.get('/api/reviews/:id', async (req, res) => {
 
 // Check eligibility for every platform on a specific game (strictly enforces platform release + legacy rules)
 app.get('/api/eligibility/:id', async (req, res) => {
+  const sid = getSid(req);
   const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in first.' });
   const gameId = String(req.params.id);
   const game = byId.get(gameId) || null;
+  const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+  const refreshPlat = PLATFORM_ORDER.includes(req.query.platform) ? req.query.platform : null;
 
-  const result = {};
-  for (const p of PLATFORM_ORDER) {
-    const released = !game || (game.platforms || []).includes(p);
-    const legacyStatus = getLegacyStatus(game, p);
+  const entries = await Promise.all(
+    PLATFORM_ORDER.map(async (p) => {
+      const released = !game || (game.platforms || []).includes(p);
+      const legacyStatus = getLegacyStatus(game, p);
 
-    if (!released) {
-      result[p] = {
-        released: false,
-        connected: Boolean(s.accounts[p]),
-        legacy: false,
-        owned: false,
-        eligible: false,
-        hours: 0,
-        minHours: MIN_HOURS,
-      };
-      continue;
-    }
-
-    if (!s.accounts[p]) {
-      result[p] = {
-        released: true,
-        connected: false,
-        legacy: legacyStatus.legacy,
-        legacyEra: legacyStatus.era,
-        legacyReason: legacyStatus.reason,
-        owned: false,
-        eligible: false,
-        hours: 0,
-        minHours: MIN_HOURS,
-      };
-      continue;
-    }
-
-    if (legacyStatus.legacy) {
-      result[p] = {
-        released: true,
-        connected: true,
-        legacy: true,
-        legacyEra: legacyStatus.era,
-        legacyReason: legacyStatus.reason,
-        owned: true,
-        eligible: true,
-        hours: 0,
-        minHours: 0,
-      };
-      continue;
-    }
-
-    try {
-      const lib = await getLibraryForPlatform(s, p);
-      const own = findOwnedGameInLibrary(lib, game, gameId);
-      if (own && p === 'xbox' && own.needsHoursLookup && own.externalId && OPENXBL_KEY) {
-        own.hours = await fetchOpenXblTitleHours(s.accounts.xbox.id, own.externalId, OPENXBL_KEY);
-        own.needsHoursLookup = false;
+      if (!released) {
+        return [
+          p,
+          {
+            released: false,
+            connected: Boolean(s.accounts[p]),
+            legacy: false,
+            owned: false,
+            eligible: false,
+            hours: 0,
+            minHours: MIN_HOURS,
+          },
+        ];
       }
-      if (own) {
-        const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own);
-        result[p] = {
-          released: true,
-          connected: true,
-          legacy: false,
-          owned: true,
-          ...evalRes,
-        };
-      } else {
+
+      if (!s.accounts[p]) {
+        return [
+          p,
+          {
+            released: true,
+            connected: false,
+            legacy: legacyStatus.legacy,
+            legacyEra: legacyStatus.era,
+            legacyReason: legacyStatus.reason,
+            owned: false,
+            eligible: false,
+            hours: 0,
+            minHours: MIN_HOURS,
+          },
+        ];
+      }
+
+      if (legacyStatus.legacy) {
+        return [
+          p,
+          {
+            released: true,
+            connected: true,
+            legacy: true,
+            legacyEra: legacyStatus.era,
+            legacyReason: legacyStatus.reason,
+            owned: true,
+            eligible: true,
+            hours: 0,
+            minHours: 0,
+          },
+        ];
+      }
+
+      try {
+        const shouldRefresh = forceRefresh && (!refreshPlat || refreshPlat === p);
+        const lib = await getLibraryForPlatform(s, p, { sid, forceRefresh: shouldRefresh });
+        const own = findOwnedGameInLibrary(lib, game, gameId);
+        if (own && p === 'xbox' && own.needsHoursLookup && own.externalId && OPENXBL_KEY) {
+          own.hours = await fetchOpenXblTitleHours(s.accounts.xbox.id, own.externalId, OPENXBL_KEY);
+          own.needsHoursLookup = false;
+        }
+        if (own) {
+          const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own);
+          return [
+            p,
+            {
+              released: true,
+              connected: true,
+              legacy: false,
+              owned: true,
+              syncedAt: s.accounts[p]?.lib?.t || Date.now(),
+              ...evalRes,
+            },
+          ];
+        }
         const minHours = getMinHoursForGame(game, MIN_HOURS);
-        result[p] = {
-          released: true,
-          connected: true,
-          legacy: false,
-          owned: false,
-          eligible: false,
-          hours: 0,
-          minHours,
-          shortGame: isShortGame(game),
-        };
+        return [
+          p,
+          {
+            released: true,
+            connected: true,
+            legacy: false,
+            owned: false,
+            eligible: false,
+            hours: 0,
+            minHours,
+            shortGame: isShortGame(game),
+            syncedAt: s.accounts[p]?.lib?.t || Date.now(),
+          },
+        ];
+      } catch (err) {
+        return [
+          p,
+          {
+            released: true,
+            connected: true,
+            legacy: false,
+            error: err.message,
+            owned: false,
+            eligible: false,
+            hours: 0,
+            minHours: MIN_HOURS,
+          },
+        ];
       }
-    } catch (err) {
-      result[p] = {
-        released: true,
-        connected: true,
-        legacy: false,
-        error: err.message,
-        owned: false,
-        eligible: false,
-        hours: 0,
-        minHours: MIN_HOURS,
-      };
-    }
-  }
-  res.json(result);
+    })
+  );
+  res.json(Object.fromEntries(entries));
 });
 
 // Unified multi-platform user library
 app.get('/api/library', async (req, res) => {
+  const sid = getSid(req);
   const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in first.' });
 
   const requestedPlat = PLATFORM_ORDER.includes(req.query.platform) ? req.query.platform : null;
   const connected = PLATFORM_ORDER.filter((p) => Boolean(s.accounts[p]));
   const activePlat = requestedPlat && s.accounts[requestedPlat] ? requestedPlat : connected[0];
+  const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
 
   try {
-    const lib = await getLibraryForPlatform(s, activePlat);
+    const lib = await getLibraryForPlatform(s, activePlat, { sid, forceRefresh });
     const acc = s.accounts[activePlat];
 
     const myReviewsMap = new Map(
@@ -1832,6 +1873,7 @@ app.get('/api/library', async (req, res) => {
       minHours: MIN_HOURS,
       activePlatform: activePlat,
       connected,
+      syncedAt: acc.lib?.t || Date.now(),
       items: enriched,
     });
   } catch (err) {
@@ -1841,6 +1883,7 @@ app.get('/api/library', async (req, res) => {
 
 // Submit or update a strictly platform-isolated verified review
 app.post('/api/review', async (req, res) => {
+  const sid = getSid(req);
   const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in with a gaming account first.' });
 
@@ -1880,8 +1923,15 @@ app.post('/api/review', async (req, res) => {
       isLegacyReview = true;
       verifiedHours = 0;
     } else {
-      const lib = await getLibraryForPlatform(s, platform);
-      const own = findOwnedGameInLibrary(lib, game, gameId);
+      let lib = await getLibraryForPlatform(s, platform, { sid });
+      let own = findOwnedGameInLibrary(lib, game, gameId);
+      const cacheAgeMs = Date.now() - (account.lib?.t || 0);
+
+      // If cached session library says not owned and cache is > 60s old, try one fresh sync
+      if (!own && cacheAgeMs > 60000) {
+        lib = await getLibraryForPlatform(s, platform, { sid, forceRefresh: true }).catch(() => lib);
+        own = findOwnedGameInLibrary(lib, game, gameId);
+      }
 
       if (!own) {
         return res.status(403).json({ error: `This game was not found in your verified ${platLabel} library.` });
@@ -1890,7 +1940,19 @@ app.post('/api/review', async (req, res) => {
         own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
         own.needsHoursLookup = false;
       }
-      const evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
+      let evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
+      if (!evalRes.eligible && cacheAgeMs > 60000) {
+        lib = await getLibraryForPlatform(s, platform, { sid, forceRefresh: true }).catch(() => lib);
+        const freshOwn = findOwnedGameInLibrary(lib, game, gameId);
+        if (freshOwn) {
+          own = freshOwn;
+          if (platform === 'xbox' && own.needsHoursLookup && own.externalId && OPENXBL_KEY) {
+            own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
+            own.needsHoursLookup = false;
+          }
+          evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
+        }
+      }
       if (!evalRes.eligible) {
         return res.status(403).json({
           error: evalRes.shortGame

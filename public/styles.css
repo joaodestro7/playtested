@@ -2664,6 +2664,49 @@ dialog.auth-modal {
   background: var(--accent);
   color: var(--accent-ink);
 }
+.library-sync-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.library-sync-age {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.btn-refresh-lib {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.btn-refresh-lib:hover {
+  background: var(--panel-hover);
+  color: var(--accent);
+}
+.inline-refresh-link {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: baseline;
+}
+.inline-refresh-link:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .user-avatar-fallback {
   width: 28px;
   height: 28px;

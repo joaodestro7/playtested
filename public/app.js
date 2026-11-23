@@ -225,6 +225,9 @@
     revFeedPlat: 'all',
     revFeedSort: 'recent',
     library: null,
+    librariesByPlat: { pc: null, ps: null, xbox: null },
+    libraryPromises: {},
+    eligibilityCache: {},
     libPlatform: 'pc',
     libFilter: 'all',
     libQuery: '',
@@ -819,8 +822,186 @@
     }
   }
 
+  // ---- Session-Scoped Client Library Cache (avoids re-syncing on every game card) ----
+  const CLIENT_LIB_TTL_MS = 6 * 60 * 60 * 1000;
+
+  function libStorageKey(plat) {
+    const accId = state.me?.accounts?.[plat]?.id || state.me?.accounts?.[plat]?.name || '';
+    return accId ? `pt_lib_v1_${plat}_${accId}` : '';
+  }
+
+  function normTitleKey(str) {
+    return String(str || '')
+      .toLowerCase()
+      .replace(/[™®©]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function readSessionLibrary(plat) {
+    const inMem = state.librariesByPlat[plat];
+    if (inMem && Date.now() - (inMem.syncedAt || 0) < CLIENT_LIB_TTL_MS) return inMem;
+    const key = libStorageKey(plat);
+    if (!key) return null;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.items) || Date.now() - (parsed.syncedAt || 0) >= CLIENT_LIB_TTL_MS) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+      state.librariesByPlat[plat] = parsed;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeSessionLibrary(plat, data) {
+    if (!data || !Array.isArray(data.items)) return;
+    const payload = { ...data, syncedAt: data.syncedAt || Date.now() };
+    state.librariesByPlat[plat] = payload;
+    const key = libStorageKey(plat);
+    if (key) {
+      try {
+        sessionStorage.setItem(key, JSON.stringify(payload));
+      } catch {
+        // Ignore sessionStorage quota overflow; in-memory state.librariesByPlat still holds it for the tab
+      }
+    }
+  }
+
+  function clearSessionLibraryCache(plat = null) {
+    const targets = plat ? [plat] : ['pc', 'ps', 'xbox'];
+    for (const p of targets) {
+      state.librariesByPlat[p] = null;
+      delete state.libraryPromises[p];
+    }
+    state.eligibilityCache = {};
+    if (!plat || state.libPlatform === plat) state.library = null;
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (!k || !k.startsWith('pt_lib_v1_')) continue;
+        if (!plat || k.startsWith(`pt_lib_v1_${plat}_`)) sessionStorage.removeItem(k);
+      }
+    } catch {}
+  }
+
+  async function ensurePlatformLibrary(plat, { forceRefresh = false } = {}) {
+    if (!state.me?.accounts?.[plat]) return null;
+    if (!forceRefresh) {
+      const cached = readSessionLibrary(plat);
+      if (cached) return cached;
+      if (state.libraryPromises[plat]) return state.libraryPromises[plat];
+    }
+    const req = (async () => {
+      const url = `/api/library?platform=${encodeURIComponent(plat)}${forceRefresh ? '&refresh=1' : ''}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not sync library.');
+      writeSessionLibrary(plat, data);
+      if (forceRefresh) state.eligibilityCache = {};
+      return state.librariesByPlat[plat];
+    })().finally(() => {
+      if (state.libraryPromises[plat] === req) delete state.libraryPromises[plat];
+    });
+    state.libraryPromises[plat] = req;
+    return req;
+  }
+
+  function prewarmConnectedLibraries() {
+    const linked = connectedPlatforms();
+    for (const p of linked) {
+      if (!readSessionLibrary(p)) {
+        ensurePlatformLibrary(p).catch(() => {});
+      }
+    }
+  }
+
+  function syncLocalLibraryReviewState(gameId, plat, scoreOrNull) {
+    const cached = readSessionLibrary(plat);
+    if (!cached || !Array.isArray(cached.items)) return;
+    let touched = false;
+    for (const item of cached.items) {
+      if (String(item.id) === String(gameId) || String(item.externalId) === String(gameId)) {
+        item.reviewed = scoreOrNull !== null;
+        item.myScore = scoreOrNull;
+        touched = true;
+      }
+    }
+    if (touched) writeSessionLibrary(plat, cached);
+  }
+
+  function formatSyncAge(ts) {
+    if (!ts) return '';
+    const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    if (mins < 1) return 'Synced just now';
+    if (mins < 60) return `Synced ${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    return `Synced ${hrs}h ago`;
+  }
+
+  function deriveInstantEligibilityFromCache(game) {
+    const gameId = String(game.id);
+    if (state.eligibilityCache[gameId]) return state.eligibilityCache[gameId];
+    const linked = connectedPlatforms();
+    if (!linked.length) return null;
+    const gamePlats = (game.platforms && game.platforms.length) ? game.platforms : ['pc'];
+    const targetNorm = normTitleKey(game.name);
+    const out = {};
+    let hasAnyCachedPlat = false;
+
+    for (const p of ['pc', 'ps', 'xbox']) {
+      if (!gamePlats.includes(p)) {
+        out[p] = { released: false, connected: linked.includes(p), legacy: false, owned: false, eligible: false, hours: 0, minHours: 2 };
+        continue;
+      }
+      if (!linked.includes(p)) {
+        out[p] = { released: true, connected: false, legacy: false, owned: false, eligible: false, hours: 0, minHours: 2 };
+        continue;
+      }
+      const lib = readSessionLibrary(p);
+      if (!lib) continue;
+      hasAnyCachedPlat = true;
+      const hit = (lib.items || []).find(
+        (it) =>
+          String(it.id) === gameId ||
+          String(it.externalId) === gameId ||
+          (targetNorm && normTitleKey(it.name) === targetNorm)
+      );
+      if (hit) {
+        out[p] = {
+          released: true,
+          connected: true,
+          legacy: false,
+          owned: true,
+          eligible: Boolean(hit.eligible),
+          hours: Number(hit.hours) || 0,
+          minHours: typeof hit.minHours === 'number' ? hit.minHours : lib.minHours || 2,
+          shortGame: Boolean(hit.shortGame),
+          achievementUnlock: Boolean(hit.achievementUnlock),
+          syncedAt: lib.syncedAt,
+        };
+      } else {
+        out[p] = {
+          released: true,
+          connected: true,
+          legacy: false,
+          owned: false,
+          eligible: false,
+          hours: 0,
+          minHours: lib.minHours || 2,
+          syncedAt: lib.syncedAt,
+        };
+      }
+    }
+    return hasAnyCachedPlat ? out : null;
+  }
+
   // ---- Multi-Platform My Library View ----
-  async function loadLibraryView() {
+  async function loadLibraryView({ forceRefresh = false } = {}) {
     const host = $('#library-container');
     const linked = connectedPlatforms();
     if (!linked.length) {
@@ -846,28 +1027,34 @@
       state.libPlatform = linked[0];
     }
 
-    host.innerHTML = `<p class="section-description">Syncing your ${PLAT_LABELS[state.libPlatform]} library…</p>`;
-    try {
-      const res = await fetch(`/api/library?platform=${encodeURIComponent(state.libPlatform)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        host.innerHTML = `
-          ${renderLibraryPlatformTabs(linked)}
-          <div class="empty-state">
-            <h3>Could not read your ${PLAT_LABELS[state.libPlatform]} library</h3>
-            <p>${esc(data.error || 'Check your platform privacy settings and try again.')}</p>
-            <button type="button" class="btn-primary" id="retry-lib-btn">Try again</button>
-          </div>`;
+    if (!forceRefresh) {
+      const cached = readSessionLibrary(state.libPlatform);
+      if (cached) {
+        state.library = cached;
+        renderLibraryList(linked);
         return;
       }
+    }
+
+    host.innerHTML = `<p class="section-description">Syncing your ${PLAT_LABELS[state.libPlatform]} library…</p>`;
+    try {
+      const data = await ensurePlatformLibrary(state.libPlatform, { forceRefresh });
       state.library = data;
       renderLibraryList(linked);
+      if (forceRefresh) showToast(`${PLAT_LABELS[state.libPlatform]} library refreshed!`);
     } catch (err) {
-      host.innerHTML = `<div class="empty-state"><h3>Library sync failed</h3><p>${esc(err.message)}</p></div>`;
+      host.innerHTML = `
+        ${renderLibraryPlatformTabs(linked)}
+        <div class="empty-state">
+          <h3>Could not read your ${PLAT_LABELS[state.libPlatform]} library</h3>
+          <p>${esc(err.message || 'Check your platform privacy settings and try again.')}</p>
+          <button type="button" class="btn-primary" id="retry-lib-btn">Try again</button>
+        </div>`;
     }
   }
 
   function renderLibraryPlatformTabs(linked) {
+    const syncAge = formatSyncAge(state.library?.syncedAt);
     return `<div class="library-plat-tabs" role="tablist" aria-label="Select connected platform library">
       ${['pc', 'ps', 'xbox']
         .map((p) => {
@@ -882,6 +1069,12 @@
           </button>`;
         })
         .join('')}
+      <div class="library-sync-meta">
+        ${syncAge ? `<span class="library-sync-age">${esc(syncAge)}</span>` : ''}
+        <button type="button" class="btn-refresh-lib" id="refresh-lib-btn" title="Re-fetch your latest games and playtime">
+          ↻ Refresh library
+        </button>
+      </div>
     </div>`;
   }
 
@@ -1320,8 +1513,8 @@
     renderUserControls();
     renderAuthModal();
     showToast(toastMsg);
+    prewarmConnectedLibraries();
     if (state.view === 'library') {
-      state.library = null;
       loadLibraryView();
     }
     if (state.currentModalGame && $('#game-modal').open) {
@@ -1341,7 +1534,7 @@
     state.currentModalGame = cached;
     state.currentModalPayload = null;
     state.modalReviewSort = 'recent';
-    state.modalEligibility = null;
+    state.modalEligibility = deriveInstantEligibilityFromCache(cached);
 
     const linked = connectedPlatforms();
     const gamePlats = (cached.platforms && cached.platforms.length) ? cached.platforms : ['pc'];
@@ -1354,8 +1547,17 @@
     if (!dlg.open) dlg.showModal();
 
     try {
-      const res = await fetch(`/api/reviews/${encodeURIComponent(gameId)}`);
-      const data = await res.json();
+      const targetId = String(gameId);
+      const cachedElig = state.eligibilityCache[targetId];
+      const reviewsPromise = fetch(`/api/reviews/${encodeURIComponent(targetId)}`).then((r) => r.json());
+      const eligPromise =
+        linked.length && !cachedElig
+          ? fetch(`/api/eligibility/${encodeURIComponent(targetId)}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null)
+          : Promise.resolve(cachedElig || null);
+
+      const [data, eligData] = await Promise.all([reviewsPromise, eligPromise]);
       const game = data.game || cached;
       state.currentModalGame = game;
       state.currentModalPayload = data;
@@ -1365,18 +1567,47 @@
         state.modalRatePlatform = linked.find((p) => resolvedPlats.includes(p)) || resolvedPlats[0];
       }
 
-      renderGameModalShell(game, data);
-
-      if (linked.length) {
-        const eligRes = await fetch(`/api/eligibility/${encodeURIComponent(game.id)}`);
-        if (eligRes.ok) {
-          state.modalEligibility = await eligRes.json();
-          updateModalEligibilityBadge();
-        }
+      if (eligData) {
+        state.modalEligibility = eligData;
+        state.eligibilityCache[String(game.id)] = eligData;
+        state.eligibilityCache[targetId] = eligData;
       }
+
+      renderGameModalShell(game, data);
     } catch (err) {
       const revBox = $('#modal-reviews-list');
       if (revBox) revBox.innerHTML = `<p class="section-description">Could not load reviews: ${esc(err.message)}</p>`;
+    }
+  }
+
+  async function refreshModalEligibility() {
+    const game = state.currentModalGame;
+    const plat = state.modalRatePlatform;
+    if (!game || !plat) return;
+    const pill = $('#modal-eligibility');
+    const btn = $('#modal-refresh-lib-btn');
+    if (pill) {
+      pill.className = 'eligibility-pill muted';
+      pill.textContent = `Refreshing your ${PLAT_LABELS[plat]} library…`;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch(
+        `/api/eligibility/${encodeURIComponent(game.id)}?refresh=1&platform=${encodeURIComponent(plat)}`
+      );
+      if (res.ok) {
+        const fresh = await res.json();
+        state.modalEligibility = fresh;
+        state.eligibilityCache = { [String(game.id)]: fresh };
+        // Also refresh client-side library snapshot in background so My Library reflects latest hours
+        ensurePlatformLibrary(plat, { forceRefresh: true }).catch(() => {});
+        updateModalEligibilityBadge();
+        showToast(`${PLAT_LABELS[plat]} library refreshed!`);
+      }
+    } catch {
+      showToast('Could not refresh library right now.');
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -1388,6 +1619,8 @@
     const p = state.modalRatePlatform;
     const info = state.modalEligibility[p];
     if (!info) return;
+
+    const refreshHtml = ` <button type="button" class="inline-refresh-link" id="modal-refresh-lib-btn">↻ Refresh ${esc(PLAT_LABELS[p])} library</button>`;
 
     if (info.released === false) {
       pill.className = 'eligibility-pill err';
@@ -1406,7 +1639,7 @@
       pill.textContent = 'Library check unavailable';
       if (statusEl) {
         statusEl.className = 'form-status err';
-        statusEl.textContent = info.error;
+        statusEl.innerHTML = `${esc(info.error)}${refreshHtml}`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else if (!info.owned) {
@@ -1414,9 +1647,10 @@
       pill.textContent = `Not in your ${PLAT_LABELS[p]} library`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        statusEl.textContent = info.shortGame
+        const msg = info.shortGame
           ? `You must own this short title on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`
           : `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played, or 0.5h+ & 50%+ achievements on Steam/Xbox) to review it.`;
+        statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else if (!info.eligible) {
@@ -1426,9 +1660,10 @@
         : `${info.hours}h played · Need ${info.minHours}h+`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        statusEl.textContent = info.shortGame
+        const msg = info.shortGame
           ? `Short title: play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} (30m min) to unlock reviewing.`
           : `Play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} (or reach 50%+ achievements at 0.5h+ on Steam/Xbox) to unlock reviewing.`;
+        statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else {
@@ -1438,6 +1673,10 @@
         : info.shortGame
           ? `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played · Short title`
           : `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
+      if (statusEl && statusEl.classList.contains('err')) {
+        statusEl.className = 'form-status';
+        statusEl.textContent = '';
+      }
       if (submitBtn) submitBtn.disabled = false;
     }
   }
@@ -1740,12 +1979,12 @@
               ? `${PLAT_LABELS[plat]} verified review updated!`
               : `${PLAT_LABELS[plat]} verified review published!`
           );
+          syncLocalLibraryReviewState(data.gameId || game.id, plat, Number(num.value));
           await openGameModal(data.gameId || game.id, game, plat);
           loadCatalog();
           loadStats();
           if (state.view === 'reviews') loadReviewsFeed();
           if (state.view === 'library') {
-            state.library = null;
             loadLibraryView();
           }
         } catch (err) {
@@ -1766,12 +2005,12 @@
           });
           if (res.ok) {
             showToast(`Your ${PLAT_LABELS[plat]} review was deleted.`);
+            syncLocalLibraryReviewState(game.id, plat, null);
             await openGameModal(game.id, game, plat);
             loadCatalog();
             loadStats();
             if (state.view === 'reviews') loadReviewsFeed();
             if (state.view === 'library') {
-              state.library = null;
               loadLibraryView();
             }
           }
@@ -1960,7 +2199,16 @@
       if (unlinkBtn) {
         const p = unlinkBtn.dataset.unlinkPlat;
         await fetch(`/auth/unlink/${encodeURIComponent(p)}`, { method: 'POST' });
+        clearSessionLibraryCache(p);
         await refreshSessionAfterAuth(`${PLAT_LABELS[p]} account unlinked.`);
+        return;
+      }
+      if (e.target.closest('#confirm-logout-proceed')) {
+        clearSessionLibraryCache();
+        return;
+      }
+      if (e.target.closest('#modal-refresh-lib-btn')) {
+        refreshModalEligibility();
         return;
       }
       const ratePlatBtn = e.target.closest('[data-rate-plat]');
@@ -2033,8 +2281,8 @@
         loadCatalog();
         return;
       }
-      if (e.target.id === 'retry-lib-btn') {
-        loadLibraryView();
+      if (e.target.id === 'retry-lib-btn' || e.target.id === 'refresh-lib-btn') {
+        loadLibraryView({ forceRefresh: true });
         return;
       }
       const libFilterBtn = e.target.closest('[data-lib-filter]');
@@ -2126,6 +2374,14 @@
     }
 
     renderUserControls();
+    if (state.me) {
+      if (connected && PLAT_LABELS[connected]) {
+        clearSessionLibraryCache(connected);
+      }
+      prewarmConnectedLibraries();
+    } else {
+      clearSessionLibraryCache();
+    }
     await Promise.all([loadStats(), loadCatalog()]);
   }
 
