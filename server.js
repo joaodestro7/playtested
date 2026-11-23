@@ -27,11 +27,18 @@ const {
   deduplicateCatalog,
 } = require('./lib/dedupe');
 const { getLegacyStatus } = require('./lib/legacy');
+const {
+  ACHIEVEMENT_UNLOCK_MIN_HOURS,
+  ACHIEVEMENT_UNLOCK_PCT,
+  isShortGame,
+  getMinHoursForGame,
+} = require('./lib/short-games');
 
 const {
   buildSteamAuthUrl,
   verifySteamReturn,
   fetchSteamLibrary,
+  fetchSteamAchievementProgress,
   createPkcePair,
   buildXboxAuthUrl,
   exchangeXboxOAuthCode,
@@ -625,10 +632,11 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
 }
 
 /**
- * STRICTLY ISOLATED PER-PLATFORM SCORING
+ * STRICTLY ISOLATED EQUAL-WEIGHT PER-PLATFORM SCORING
  * Each platform (PC/Steam, PlayStation, Xbox) is calculated exclusively from
  * verified reviews submitted on THAT platform. Scores are NEVER mixed across platforms.
- * Weight per review: 1 + log10(1 + hours)
+ * Every verified owner counts equally (1:1 arithmetic mean) — playtime is displayed
+ * alongside every review for context, never used to weight or skew scores.
  */
 function computeScores(gameId) {
   const id = String(gameId);
@@ -636,17 +644,88 @@ function computeScores(gameId) {
     PLATFORM_ORDER.map((plat) => {
       const list = db.reviews.filter((r) => String(r.gameId) === id && r.platform === plat);
       if (!list.length) return [plat, null];
-      const weights = list.map((r) => (r.legacy ? 1 : 1 + Math.log10(1 + Math.max(0, Number(r.hours) || 0))));
-      const sumW = weights.reduce((a, b) => a + b, 0);
-      const weighted = Math.round(list.reduce((acc, r, i) => acc + r.score * weights[i], 0) / sumW);
-      const timed = list.filter((r) => !r.legacy && (Number(r.hours) || 0) > 0);
+      const equalMean = Math.round(list.reduce((acc, r) => acc + r.score, 0) / list.length);
+      const timed = list
+        .filter((r) => !r.legacy && (Number(r.hours) || 0) > 0)
+        .map((r) => Number(r.hours) || 0)
+        .sort((a, b) => a - b);
       const avgHours = timed.length
-        ? Math.round((timed.reduce((acc, r) => acc + (Number(r.hours) || 0), 0) / timed.length) * 10) / 10
+        ? Math.round((timed.reduce((a, b) => a + b, 0) / timed.length) * 10) / 10
         : 0;
+      const midIdx = Math.floor(timed.length / 2);
+      const medianHours = timed.length
+        ? Math.round(
+            (timed.length % 2 ? timed[midIdx] : (timed[midIdx - 1] + timed[midIdx]) / 2) * 10
+          ) / 10
+        : 0;
+      const dist = {
+        hi: list.filter((r) => r.score >= 75).length,
+        mid: list.filter((r) => r.score >= 50 && r.score < 75).length,
+        lo: list.filter((r) => r.score < 50).length,
+      };
       const legacyOnly = timed.length === 0 && list.every((r) => r.legacy);
-      return [plat, { score: weighted, n: list.length, avgHours, legacyOnly }];
+      return [plat, { score: equalMean, n: list.length, avgHours, medianHours, dist, legacyOnly }];
     })
   );
+}
+
+/**
+ * Evaluates whether a verified owner meets the playtime gate for a game:
+ * - Standard games: >= MIN_HOURS (2h)
+ * - Short narrative/indie titles (lib/short-games.js): >= 0.5h (30 min)
+ * - Achievement progress unlock (Steam & Xbox): >= 0.5h AND >= 50% achievements unlocked
+ */
+async function evaluateOwnershipEligibility(account, platform, game, own) {
+  const refGame = game || { name: own.name, canonicalKey: own.canonicalKey };
+  const shortTitle = isShortGame(refGame);
+  const minHours = getMinHoursForGame(refGame, MIN_HOURS);
+  const hours = Number(own.hours) || 0;
+
+  if (hours >= minHours) {
+    return {
+      eligible: true,
+      hours,
+      minHours,
+      shortGame: shortTitle,
+      achievementUnlock: false,
+      achievementPct: Number(own.achievementPct) || 0,
+    };
+  }
+
+  // Automatic short-game unlock via >=50% achievements when at least 30 min played
+  if (hours >= ACHIEVEMENT_UNLOCK_MIN_HOURS) {
+    if (platform === 'pc' && own.externalId && STEAM_KEY) {
+      const ach = await fetchSteamAchievementProgress(account.id, own.externalId, STEAM_KEY);
+      if (ach && ach.total > 0 && ach.percent >= ACHIEVEMENT_UNLOCK_PCT) {
+        return {
+          eligible: true,
+          hours,
+          minHours: ACHIEVEMENT_UNLOCK_MIN_HOURS,
+          shortGame: false,
+          achievementUnlock: true,
+          achievementPct: ach.percent,
+        };
+      }
+    } else if (platform === 'xbox' && Number(own.achievementPct) >= ACHIEVEMENT_UNLOCK_PCT) {
+      return {
+        eligible: true,
+        hours,
+        minHours: ACHIEVEMENT_UNLOCK_MIN_HOURS,
+        shortGame: false,
+        achievementUnlock: true,
+        achievementPct: Number(own.achievementPct),
+      };
+    }
+  }
+
+  return {
+    eligible: false,
+    hours,
+    minHours,
+    shortGame: shortTitle,
+    achievementUnlock: false,
+    achievementPct: Number(own.achievementPct) || 0,
+  };
 }
 
 function detectSpike(gameId) {
@@ -1401,25 +1480,28 @@ app.get('/api/eligibility/:id', async (req, res) => {
         own.hours = await fetchOpenXblTitleHours(s.accounts.xbox.id, own.externalId, OPENXBL_KEY);
         own.needsHoursLookup = false;
       }
-      result[p] = own
-        ? {
-            released: true,
-            connected: true,
-            legacy: false,
-            owned: true,
-            eligible: own.hours >= MIN_HOURS,
-            hours: own.hours,
-            minHours: MIN_HOURS,
-          }
-        : {
-            released: true,
-            connected: true,
-            legacy: false,
-            owned: false,
-            eligible: false,
-            hours: 0,
-            minHours: MIN_HOURS,
-          };
+      if (own) {
+        const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own);
+        result[p] = {
+          released: true,
+          connected: true,
+          legacy: false,
+          owned: true,
+          ...evalRes,
+        };
+      } else {
+        const minHours = getMinHoursForGame(game, MIN_HOURS);
+        result[p] = {
+          released: true,
+          connected: true,
+          legacy: false,
+          owned: false,
+          eligible: false,
+          hours: 0,
+          minHours,
+          shortGame: isShortGame(game),
+        };
+      }
     } catch (err) {
       result[p] = {
         released: true,
@@ -1471,10 +1553,16 @@ app.get('/api/library', async (req, res) => {
         );
       const canonicalId = String(matched ? matched.id : item.externalId);
       const rev = myReviewsMap.get(canonicalId);
+      const refForShort = matched || { name: item.name, canonicalKey: item.canonicalKey };
+      const itemMinHours = getMinHoursForGame(refForShort, MIN_HOURS);
+      const itemAchUnlock =
+        activePlat === 'xbox' &&
+        Number(item.hours) >= ACHIEVEMENT_UNLOCK_MIN_HOURS &&
+        Number(item.achievementPct) >= ACHIEVEMENT_UNLOCK_PCT;
       const prev = enrichedByCanonical.get(canonicalId);
       if (prev) {
         prev.hours = Math.round((prev.hours + (Number(item.hours) || 0)) * 10) / 10;
-        prev.eligible = prev.hours >= MIN_HOURS;
+        prev.eligible = prev.hours >= prev.minHours || prev.achievementUnlock || itemAchUnlock;
         if (!prev.cover && item.cover) prev.cover = item.cover;
         continue;
       }
@@ -1484,7 +1572,10 @@ app.get('/api/library', async (req, res) => {
         platform: activePlat,
         name: matched?.name || item.name,
         hours: item.hours,
-        eligible: item.hours >= MIN_HOURS,
+        minHours: itemMinHours,
+        shortGame: isShortGame(refForShort),
+        achievementUnlock: itemAchUnlock,
+        eligible: item.hours >= itemMinHours || itemAchUnlock,
         reviewed: Boolean(rev),
         myScore: rev ? rev.score : null,
         cover: matched?.cover || item.cover || '',
@@ -1558,12 +1649,15 @@ app.post('/api/review', async (req, res) => {
         own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
         own.needsHoursLookup = false;
       }
-      if (own.hours < MIN_HOURS) {
+      const evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
+      if (!evalRes.eligible) {
         return res.status(403).json({
-          error: `You need at least ${MIN_HOURS}h of verified playtime on ${platLabel} to review. You currently have ${own.hours}h.`,
+          error: evalRes.shortGame
+            ? `Short title requires at least ${evalRes.minHours}h (30 min) of verified playtime on ${platLabel} to review. You currently have ${evalRes.hours}h.`
+            : `You need at least ${evalRes.minHours}h of verified playtime on ${platLabel} (or 0.5h+ with 50%+ achievements on Steam/Xbox) to review. You currently have ${evalRes.hours}h.`,
         });
       }
-      verifiedHours = own.hours;
+      verifiedHours = evalRes.hours;
 
       // Ensure canonical game record exists and includes this verified platform (zero duplication)
       if (!game) {

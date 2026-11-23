@@ -1,7 +1,7 @@
 {
   "name": "playtested",
   "version": "1.0.0",
-  "description": "Verified player-only game reviews weighted by real playtime. Zero critics, ever.",
+  "description": "Verified player-only game reviews with equal-weight scores per platform. Zero critics, ever.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

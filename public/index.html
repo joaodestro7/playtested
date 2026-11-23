@@ -6,7 +6,7 @@
     <title>Playtested — True Reviews by True Gamers</title>
     <meta
       name="description"
-      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime, strictly isolated per platform, with zero critic ratings ever."
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — equal weight per verified owner, strictly isolated per platform, with zero critic ratings ever."
     />
     <link rel="canonical" href="https://playtested.party/" />
     <meta property="og:type" content="website" />
@@ -15,7 +15,7 @@
     <meta property="og:title" content="Playtested — True Reviews by True Gamers" />
     <meta
       property="og:description"
-      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime and strictly isolated per platform. Verified owners only, zero critics ever."
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — every verified owner counts equally, strictly isolated per platform. Zero critics ever."
     />
     <meta property="og:image" content="https://playtested.party/images/after-hours.png" />
     <meta property="og:image:alt" content="Playtested — True Reviews by True Gamers" />
@@ -23,7 +23,7 @@
     <meta name="twitter:title" content="Playtested — True Reviews by True Gamers" />
     <meta
       name="twitter:description"
-      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — weighted by real playtime. Verified owners only, zero critics ever."
+      content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — equal weight per verified owner. Zero critic ratings, ever."
     />
     <meta name="twitter:image" content="https://playtested.party/images/after-hours.png" />
     <script type="application/ld+json">
@@ -32,14 +32,14 @@
         "@type": "WebSite",
         "name": "Playtested",
         "url": "https://playtested.party/",
-        "description": "Verified player-only video game review platform with playtime-weighted 0–100 scores isolated per platform (Steam, PlayStation, Xbox) and zero critic ratings."
+        "description": "Verified player-only video game review platform with equal-weight 0–100 scores isolated per platform (Steam, PlayStation, Xbox) and zero critic ratings."
       }
     </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..600&family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..600&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script>
@@ -53,7 +53,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -135,8 +135,8 @@
                 <em>by True Gamers</em>
               </h1>
               <p class="hero-sub">
-                Independent 0–100 scores for Steam, PlayStation, and Xbox — weighted by real playtime and never
-                mixed across platforms. Connect your gaming accounts to review games you actually own and played.
+                Independent 0–100 scores for Steam, PlayStation, and Xbox — every verified owner counts equally,
+                never mixed across platforms. Connect your gaming accounts to review games you actually own and played.
               </p>
               <div class="hero-ctas">
                 <button type="button" class="btn-primary" id="hero-browse-btn">
@@ -198,13 +198,13 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m5 12 4 4L19 6" />
             </svg>
-            Minimum 2h playtime required
+            2h+ playtime (30m+ short titles)
           </div>
           <div class="trust-item">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="m5 12 4 4L19 6" />
             </svg>
-            Playtime-weighted 0–100 scores
+            Equal-weight 0–100 scores
           </div>
           <div class="trust-item">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -305,11 +305,11 @@
               </button>
 
               <div class="sidebar-info">
-                <div class="sidebar-info-title">Isolated per-platform scores</div>
+                <div class="sidebar-info-title">Isolated equal-weight scores</div>
                 <p>
                   Steam, PlayStation, and Xbox scores are calculated <strong>strictly individually</strong> from
-                  verified owners with <strong>2h+</strong> played on that platform — never mixed or averaged together.
-                  Critic scores are never permitted.
+                  verified owners (<strong>2h+</strong> played, or <strong>30m+</strong> for short titles &amp; 50%+ achievements).
+                  Every verified review weighs the same — playtime is shown for context, never used to skew scores.
                 </p>
               </div>
             </aside>
@@ -469,6 +469,6 @@
     <!-- TOAST -->
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=5"></script>
   </body>
 </html>

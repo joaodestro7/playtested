@@ -168,9 +168,9 @@
   function placeholderSvg(name) {
     const safe = String(name || 'Playtested').replace(/[<>&"]/g, '').slice(0, 26);
     const dark = document.documentElement.dataset.theme !== 'light';
-    const bg = dark ? '#1d1a26' : '#e7e2d7';
-    const fg = dark ? '#9e97ab' : '#685f74';
-    const accent = dark ? '#b7a0f5' : '#6139ac';
+    const bg = dark ? '#1b1f26' : '#e8e3d6';
+    const fg = dark ? '#969ca8' : '#5c606b';
+    const accent = dark ? '#ff6b35' : '#cf3b14';
     return (
       'data:image/svg+xml,' +
       encodeURIComponent(
@@ -766,11 +766,12 @@
             ? visible
                 .slice(0, 150)
                 .map((x) => {
+                  const reqHours = typeof x.minHours === 'number' ? x.minHours : data.minHours;
                   const tag = x.reviewed
                     ? `<span class="lib-tag reviewed">Rated · ${x.myScore}</span>`
                     : x.eligible
                       ? `<span class="lib-tag eligible">Rate on ${platName}</span>`
-                      : `<span class="lib-tag locked">Need ${(data.minHours - x.hours).toFixed(1)}h</span>`;
+                      : `<span class="lib-tag locked">Need ${Math.max(0.1, reqHours - x.hours).toFixed(1)}h</span>`;
                   return `<button type="button" class="library-row" data-open-lib-game="${esc(x.id)}">
                     ${coverImg(x)}
                     <div class="library-row-info">
@@ -858,7 +859,7 @@
           <span class="provider-logo">${platIcon('ps')}</span>
           <div class="provider-meta">
             <strong>PlayStation Network</strong>
-            <span>Verify PlayStation library &amp; playtime</span>
+            <span>Read-only library check · token stays in server RAM only</span>
           </div>
           <button type="button" class="provider-connect-btn" data-toggle-psn>${state.psnPanelOpen ? 'Cancel' : 'Connect'}</button>
         </div>
@@ -906,12 +907,21 @@
 
     dlg.innerHTML = `<div class="modal-scroll"><div class="auth-modal-body">
       <button type="button" class="modal-close-btn" data-close-modal="auth-modal" aria-label="Close">✕</button>
-      <div class="eyebrow" style="margin-bottom:10px;"><span class="eyebrow-dot"></span>VERIFIED PLAYER ACCOUNTS</div>
+      <div class="eyebrow" style="margin-bottom:10px;">VERIFIED PLAYER ACCOUNTS</div>
       <h2>Connect your platforms<span class="accent-dot">.</span></h2>
       <p class="auth-modal-desc">
-        Link Steam, PlayStation, or Xbox to prove ownership and playtime (2h+ minimum). Reviews are calculated
-        individually per platform and never mixed.
+        Link Steam, PlayStation, or Xbox to prove ownership and real playtime (2h+ standard, 30m+ for short titles or 50%+ achievements).
+        Every verified owner counts equally and platform scores are never mixed.
       </p>
+
+      <div class="trust-callout">
+        <strong>How your account stays safe (100% read-only):</strong>
+        <ul>
+          <li><strong>No passwords ever:</strong> Steam signs in directly on <code>steamcommunity.com</code> via official OpenID; Xbox uses a public Gamertag bio code.</li>
+          <li><strong>No stored auth tokens:</strong> Temporary PSN/OAuth tokens stay in server RAM only and are never written to disk or database.</li>
+          <li><strong>Publicly auditable:</strong> <a href="https://github.com/joaodestro7/playtested/blob/main/lib/platforms.js" target="_blank" rel="noopener noreferrer">Inspect exact auth code (lib/platforms.js) ↗</a></li>
+        </ul>
+      </div>
 
       <div class="provider-stack">
         <!-- STEAM -->
@@ -920,7 +930,7 @@
             <span class="provider-logo">${platIcon('pc')}</span>
             <div class="provider-meta">
               <strong>Steam (PC)</strong>
-              <span>${acc.pc ? esc(acc.pc.name) : 'Verify Steam library &amp; hours played'}</span>
+              <span>${acc.pc ? esc(acc.pc.name) : 'Official OpenID redirect on steamcommunity.com · no password shared'}</span>
             </div>
             ${
               acc.pc
@@ -944,7 +954,7 @@
             <span class="provider-logo">${platIcon('xbox')}</span>
             <div class="provider-meta">
               <strong>Xbox Live</strong>
-              <span>${acc.xbox ? esc(acc.xbox.name) : 'Verify Xbox library &amp; hours played'}</span>
+              <span>${acc.xbox ? esc(acc.xbox.name) : 'Public Gamertag bio code · zero login credentials entered here'}</span>
             </div>
             ${
               acc.xbox
@@ -1236,20 +1246,30 @@
       pill.textContent = `Not in your ${PLAT_LABELS[p]} library`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        statusEl.textContent = `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`;
+        statusEl.textContent = info.shortGame
+          ? `You must own this short title on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`
+          : `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played, or 0.5h+ & 50%+ achievements on Steam/Xbox) to review it.`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else if (!info.eligible) {
       pill.className = 'eligibility-pill warn';
-      pill.textContent = `${info.hours}h played · Need ${info.minHours}h+`;
+      pill.textContent = info.shortGame
+        ? `${info.hours}h played · Need ${info.minHours}h+ (Short title)`
+        : `${info.hours}h played · Need ${info.minHours}h+`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        statusEl.textContent = `Play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} to unlock reviewing.`;
+        statusEl.textContent = info.shortGame
+          ? `Short title: play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} (30m min) to unlock reviewing.`
+          : `Play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} (or reach 50%+ achievements at 0.5h+ on Steam/Xbox) to unlock reviewing.`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else {
       pill.className = 'eligibility-pill ok';
-      pill.textContent = `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
+      pill.textContent = info.achievementUnlock
+        ? `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played (${info.achievementPct}% achievements)`
+        : info.shortGame
+          ? `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played · Short title`
+          : `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
       if (submitBtn) submitBtn.disabled = false;
     }
   }
@@ -1318,9 +1338,37 @@
             .join('')}
         </div>
 
+        ${(() => {
+          const activeSc = scores[activePlat];
+          if (!activeSc || !activeSc.n) return '';
+          const d = activeSc.dist || { hi: 0, mid: 0, lo: 0 };
+          const hiPct = Math.round((d.hi / activeSc.n) * 100);
+          const midPct = Math.round((d.mid / activeSc.n) * 100);
+          const loPct = Math.max(0, 100 - hiPct - midPct);
+          const hoursMeta = activeSc.legacyOnly
+            ? 'Classic Era · account verified'
+            : `Median ${activeSc.medianHours || activeSc.avgHours || 0}h · Avg ${activeSc.avgHours || 0}h played`;
+          return `<div class="score-breakdown-box">
+            <div class="score-breakdown-head">
+              <strong>${PLAT_LABELS[activePlat]} Equal-Weight Breakdown (${activeSc.n} ${activeSc.n === 1 ? 'review' : 'reviews'})</strong>
+              <span>1 verified owner = 1 equal vote · ${hoursMeta}</span>
+            </div>
+            <div class="score-dist-bar" aria-label="Score distribution for ${PLAT_LABELS[activePlat]}">
+              ${d.hi ? `<span class="score-dist-seg hi" style="width:${hiPct}%"></span>` : ''}
+              ${d.mid ? `<span class="score-dist-seg mid" style="width:${midPct}%"></span>` : ''}
+              ${d.lo ? `<span class="score-dist-seg lo" style="width:${loPct}%"></span>` : ''}
+            </div>
+            <div class="score-breakdown-legend">
+              <span><i class="legend-swatch hi"></i>Positive (75–100): ${d.hi}</span>
+              <span><i class="legend-swatch mid"></i>Mixed (50–74): ${d.mid}</span>
+              <span><i class="legend-swatch lo"></i>Negative (0–49): ${d.lo}</span>
+            </div>
+          </div>`;
+        })()}
+
         ${
           stats.spike
-            ? `<div class="spike-notice"><strong>High recent activity:</strong> Verified owners are actively reviewing this game right now. All platform scores remain strictly playtime-weighted and isolated.</div>`
+            ? `<div class="spike-notice"><strong>High recent activity:</strong> Verified owners are actively reviewing this game right now. All platform scores remain strictly equal-weight and isolated per platform.</div>`
             : ''
         }
 
