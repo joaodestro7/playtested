@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const {
   PLATFORM_ORDER,
   normalizeTitle,
+  baseTitleKey,
   upsertCanonicalGame,
   deduplicateCatalog,
 } = require('./lib/dedupe');
@@ -568,7 +569,11 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
   const targetId = String(gameId || '');
   const strippedTargetId = targetId.replace(/^(?:ps|xbox|steam)-/i, '');
   const pids = game?.platformIds || {};
+  const steamAlts = new Set(
+    [pids.steam, ...(Array.isArray(pids.steamAlts) ? pids.steamAlts : []), targetId].filter(Boolean).map(String)
+  );
   const targetKey = game ? game.canonicalKey || normalizeTitle(game.name) : '';
+  const targetBaseKey = game ? baseTitleKey(game.name) : '';
 
   const matches = libItems.filter((item) => {
     const ids = new Set(
@@ -585,10 +590,14 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
       return true;
     }
     if (item.platform === 'pc') {
-      const steamPid = String(pids.steam || targetId);
-      if (steamPid && ids.has(steamPid)) return true;
+      for (const sid of steamAlts) {
+        if (ids.has(sid)) return true;
+      }
     }
     if (targetKey && item.canonicalKey && item.canonicalKey === targetKey) {
+      return true;
+    }
+    if (targetBaseKey && item.name && baseTitleKey(item.name) === targetBaseKey) {
       return true;
     }
     return false;
@@ -1673,13 +1682,18 @@ app.get('/api/library', async (req, res) => {
         .filter(Boolean)
         .map(String);
       // Match to existing canonical game so zero duplicates occur
+      const itemBaseKey = baseTitleKey(item.name);
       const matched =
         itemIds.map((id) => byId.get(id)).find(Boolean) ||
         itemIds.map((id) => byId.get(`${activePlat}-${id}`)).find(Boolean) ||
         db.games.find(
           (g) =>
             (g.platformIds?.[activePlat] && itemIds.includes(String(g.platformIds[activePlat]))) ||
-            (item.canonicalKey && (g.canonicalKey || normalizeTitle(g.name)) === item.canonicalKey)
+            (activePlat === 'pc' &&
+              Array.isArray(g.platformIds?.steamAlts) &&
+              g.platformIds.steamAlts.some((sid) => itemIds.includes(String(sid)))) ||
+            (item.canonicalKey && (g.canonicalKey || normalizeTitle(g.name)) === item.canonicalKey) ||
+            (itemBaseKey && baseTitleKey(g.name) === itemBaseKey && (!g.date || g.date >= '2010-01-01'))
         );
       const canonicalId = String(matched ? matched.id : item.externalId);
       const rev = myReviewsMap.get(canonicalId);
