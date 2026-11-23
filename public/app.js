@@ -930,10 +930,12 @@
       let touched = false;
       for (const item of cached.items) {
         if (String(item.id) === String(gameId) || String(item.externalId) === String(gameId)) {
+          if (typeof info.minHours === 'number' && info.minHours !== item.minHours) {
+            item.minHours = info.minHours;
+            touched = true;
+          }
           if (info.eligible && !item.eligible) {
             item.eligible = true;
-            item.achievementUnlock = Boolean(info.achievementUnlock);
-            if (info.achievementPct) item.achievementPct = info.achievementPct;
             touched = true;
           }
         }
@@ -988,8 +990,6 @@
           eligible: Boolean(hit.eligible),
           hours: Number(hit.hours) || 0,
           minHours: typeof hit.minHours === 'number' ? hit.minHours : lib.minHours || 2,
-          shortGame: Boolean(hit.shortGame),
-          achievementUnlock: Boolean(hit.achievementUnlock),
           syncedAt: lib.syncedAt,
         };
       } else {
@@ -1279,7 +1279,7 @@
       <div class="eyebrow" style="margin-bottom:10px;">VERIFIED PLAYER ACCOUNTS</div>
       <h2>Connect your platforms<span class="accent-dot">.</span></h2>
       <p class="auth-modal-desc">
-        Link Steam, PlayStation, or Xbox to prove ownership and real playtime (2h+ standard, 30m+ curated short titles, or 50%+ achievements/trophies with recorded playtime).
+        Link Steam, PlayStation, or Xbox to prove ownership and 2h+ verified playtime.
         Every verified owner counts equally and platform scores are never mixed.
       </p>
 
@@ -1631,7 +1631,6 @@
     if (!info) return;
 
     const refreshHtml = ` <button type="button" class="inline-refresh-link" id="modal-refresh-lib-btn">↻ Refresh ${esc(PLAT_LABELS[p])} library</button>`;
-    const achWord = p === 'ps' ? 'trophies' : 'achievements';
 
     if (info.released === false) {
       pill.className = 'eligibility-pill err';
@@ -1658,33 +1657,22 @@
       pill.textContent = `Not in your ${PLAT_LABELS[p]} library`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        const msg = info.shortGame
-          ? `You must own this short title on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played, or 50%+ ${achWord}) to review it.`
-          : `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played, or 50%+ ${achWord} with recorded playtime) to review it.`;
+        const msg = `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`;
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else if (!info.eligible) {
       pill.className = 'eligibility-pill warn';
-      const achProgress = info.achievementPct ? ` · ${info.achievementPct}% ${achWord}` : '';
-      pill.textContent = info.shortGame
-        ? `${info.hours}h played${achProgress} · Need ${info.minHours}h+ (Short title)`
-        : `${info.hours}h played${achProgress} · Need ${info.minHours}h+ or 50%+ ${achWord}`;
+      pill.textContent = `${info.hours}h played · Need ${info.minHours}h+`;
       if (statusEl) {
         statusEl.className = 'form-status err';
-        const msg = info.shortGame
-          ? `Short title: play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} (30m min), or unlock 50%+ ${achWord} with recorded playtime.`
-          : `Play at least ${(info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]}, or unlock 50%+ ${achWord} with recorded playtime to unlock reviewing.`;
+        const msg = `Play at least ${Math.max(0.1, info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} to unlock reviewing.`;
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       if (submitBtn) submitBtn.disabled = true;
     } else {
       pill.className = 'eligibility-pill ok';
-      pill.textContent = info.achievementUnlock
-        ? `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played (${info.achievementPct}% ${achWord})`
-        : info.shortGame
-          ? `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played · Short title`
-          : `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
+      pill.textContent = `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
       if (statusEl && statusEl.classList.contains('err')) {
         statusEl.className = 'form-status';
         statusEl.textContent = '';

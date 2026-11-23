@@ -29,17 +29,14 @@ const {
 } = require('./lib/dedupe');
 const { getLegacyStatus } = require('./lib/legacy');
 const {
-  ACHIEVEMENT_UNLOCK_MIN_HOURS,
-  ACHIEVEMENT_UNLOCK_PCT,
-  isShortGame,
-  getMinHoursForGame,
-} = require('./lib/short-games');
+  getCachedEffectiveMinHours,
+  resolveEffectiveMinHours,
+} = require('./lib/hltb');
 
 const {
   buildSteamAuthUrl,
   verifySteamReturn,
   fetchSteamLibrary,
-  fetchSteamAchievementProgress,
   createPkcePair,
   buildXboxAuthUrl,
   exchangeXboxOAuthCode,
@@ -91,6 +88,7 @@ const db = {
   genOffsets: {},
   marketing: {},
   indexState: null,
+  hltbCache: {},
 };
 let byId = new Map();
 
@@ -643,7 +641,6 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
   let totalHours = 0;
   let best = matches[0];
   let needsLookup = false;
-  let maxAchPct = 0;
 
   for (const m of matches) {
     const mIds = [m.externalId, ...(Array.isArray(m.externalIds) ? m.externalIds : [])].filter(Boolean).map(String);
@@ -661,14 +658,12 @@ function findOwnedGameInLibrary(libItems, game, gameId) {
       best = m;
     }
     if (m.needsHoursLookup) needsLookup = true;
-    if ((Number(m.achievementPct) || 0) > maxAchPct) maxAchPct = Number(m.achievementPct) || 0;
   }
 
   return {
     ...best,
     externalIds: allExternalIds,
     hours: Math.round(totalHours * 10) / 10,
-    achievementPct: maxAchPct,
     needsHoursLookup: needsLookup,
   };
 }
@@ -714,56 +709,42 @@ function computeScores(gameId) {
 /**
  * Evaluates whether a verified owner meets the playtime gate for a game:
  * - Standard games: >= MIN_HOURS (2h)
- * - Curated short narrative/indie titles (lib/short-games.js): >= 0.5h (30 min)
- * - Universal achievement / trophy progress unlock (Steam, PlayStation, Xbox):
- *   any recorded playtime (>= 0.1h / ~6 min) AND >= 50% achievements/trophies unlocked
+ * - Short games (< 2h to beat on HowLongToBeat): silently requires 20% of the
+ *   HLTB main-story completion time (min 0.1h so 0h unplayed accounts stay blocked)
  */
-async function evaluateOwnershipEligibility(account, platform, game, own, { forceRefresh = false } = {}) {
+async function evaluateOwnershipEligibility(_account, _platform, game, own) {
   const refGame = game || { name: own.name, canonicalKey: own.canonicalKey };
-  const shortTitle = isShortGame(refGame);
-  const minHours = getMinHoursForGame(refGame, MIN_HOURS);
   const hours = Number(own.hours) || 0;
-  let achievementPct = Number(own.achievementPct) || 0;
 
-  if (hours >= minHours) {
+  if (hours >= MIN_HOURS) {
     return {
       eligible: true,
       hours,
-      minHours,
-      shortGame: shortTitle,
-      achievementUnlock: false,
-      achievementPct,
+      minHours: MIN_HOURS,
     };
   }
 
-  // Universal short/micro-game unlock via >= 50% achievements/trophies on Steam, PlayStation, or Xbox
-  if (hours >= ACHIEVEMENT_UNLOCK_MIN_HOURS) {
-    if (platform === 'pc' && own.externalId) {
-      const ach = await fetchSteamAchievementProgress(account.id, own.externalId, STEAM_KEY, { forceRefresh });
-      if (ach && ach.total > 0) {
-        achievementPct = ach.percent;
-        own.achievementPct = ach.percent;
-      }
-    }
-    if (achievementPct >= ACHIEVEMENT_UNLOCK_PCT) {
-      return {
-        eligible: true,
-        hours,
-        minHours: ACHIEVEMENT_UNLOCK_MIN_HOURS,
-        shortGame: shortTitle,
-        achievementUnlock: true,
-        achievementPct,
-      };
-    }
+  if (hours > 0) {
+    db.hltbCache = db.hltbCache || {};
+    const { minHours } = await resolveEffectiveMinHours(refGame, db.hltbCache, {
+      defaultMinHours: MIN_HOURS,
+      onPersist: (nextCache) => {
+        save();
+        if (store.isPostgres) store.setKv('hltbCache', nextCache).catch(() => {});
+      },
+    });
+    return {
+      eligible: hours >= minHours,
+      hours,
+      minHours,
+    };
   }
 
+  const cachedMin = getCachedEffectiveMinHours(refGame, db.hltbCache, MIN_HOURS);
   return {
     eligible: false,
-    hours,
-    minHours,
-    shortGame: shortTitle,
-    achievementUnlock: false,
-    achievementPct,
+    hours: 0,
+    minHours: cachedMin,
   };
 }
 
@@ -1745,9 +1726,7 @@ app.get('/api/eligibility/:id', async (req, res) => {
           own.needsHoursLookup = false;
         }
         if (own) {
-          const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own, {
-            forceRefresh: shouldRefresh,
-          });
+          const evalRes = await evaluateOwnershipEligibility(s.accounts[p], p, game, own);
           return [
             p,
             {
@@ -1760,7 +1739,6 @@ app.get('/api/eligibility/:id', async (req, res) => {
             },
           ];
         }
-        const minHours = getMinHoursForGame(game, MIN_HOURS);
         return [
           p,
           {
@@ -1770,8 +1748,7 @@ app.get('/api/eligibility/:id', async (req, res) => {
             owned: false,
             eligible: false,
             hours: 0,
-            minHours,
-            shortGame: isShortGame(game),
+            minHours: MIN_HOURS,
             syncedAt: s.accounts[p]?.lib?.t || Date.now(),
           },
         ];
@@ -1838,19 +1815,11 @@ app.get('/api/library', async (req, res) => {
       const canonicalId = String(matched ? matched.id : item.externalId);
       const rev = myReviewsMap.get(canonicalId);
       const refForShort = matched || { name: item.name, canonicalKey: item.canonicalKey };
-      const itemMinHours = getMinHoursForGame(refForShort, MIN_HOURS);
-      const itemAchUnlock =
-        Number(item.hours) >= ACHIEVEMENT_UNLOCK_MIN_HOURS &&
-        Number(item.achievementPct) >= ACHIEVEMENT_UNLOCK_PCT;
+      const itemMinHours = getCachedEffectiveMinHours(refForShort, db.hltbCache, MIN_HOURS);
       const prev = enrichedByCanonical.get(canonicalId);
       if (prev) {
         prev.hours = Math.round((prev.hours + (Number(item.hours) || 0)) * 10) / 10;
-        prev.achievementPct = Math.max(Number(prev.achievementPct) || 0, Number(item.achievementPct) || 0);
-        prev.achievementUnlock =
-          prev.achievementUnlock ||
-          itemAchUnlock ||
-          (prev.hours >= ACHIEVEMENT_UNLOCK_MIN_HOURS && prev.achievementPct >= ACHIEVEMENT_UNLOCK_PCT);
-        prev.eligible = prev.hours >= prev.minHours || prev.achievementUnlock;
+        prev.eligible = prev.hours >= prev.minHours;
         if (!prev.cover && item.cover) prev.cover = item.cover;
         continue;
       }
@@ -1861,10 +1830,7 @@ app.get('/api/library', async (req, res) => {
         name: matched?.name || item.name,
         hours: item.hours,
         minHours: itemMinHours,
-        shortGame: isShortGame(refForShort),
-        achievementPct: Number(item.achievementPct) || 0,
-        achievementUnlock: itemAchUnlock,
-        eligible: item.hours >= itemMinHours || itemAchUnlock,
+        eligible: item.hours >= itemMinHours,
         reviewed: Boolean(rev),
         myScore: rev ? rev.score : null,
         cover: matched?.cover || item.cover || '',
@@ -1957,15 +1923,12 @@ app.post('/api/review', async (req, res) => {
             own.hours = await fetchOpenXblTitleHours(account.id, own.externalId, OPENXBL_KEY);
             own.needsHoursLookup = false;
           }
-          evalRes = await evaluateOwnershipEligibility(account, platform, game, own, { forceRefresh: true });
+          evalRes = await evaluateOwnershipEligibility(account, platform, game, own);
         }
       }
       if (!evalRes.eligible) {
-        const achWord = platform === 'ps' ? 'trophies' : 'achievements';
         return res.status(403).json({
-          error: evalRes.shortGame
-            ? `Short title requires at least ${evalRes.minHours}h (30 min) of verified playtime on ${platLabel}, or 50%+ ${achWord} with recorded playtime. You currently have ${evalRes.hours}h.`
-            : `You need at least ${evalRes.minHours}h of verified playtime on ${platLabel}, or 50%+ ${achWord} with recorded playtime to review. You currently have ${evalRes.hours}h${evalRes.achievementPct ? ` (${evalRes.achievementPct}% ${achWord})` : ''}.`,
+          error: `You need at least ${evalRes.minHours}h of verified playtime on ${platLabel} to review. You currently have ${evalRes.hours}h.`,
         });
       }
       verifiedHours = evalRes.hours;
