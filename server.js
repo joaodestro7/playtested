@@ -786,16 +786,139 @@ async function fetchJsonSafe(url) {
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+const isIsoDate = (d) => /^(19|20)\d\d-\d\d-\d\d$/.test(String(d || ''));
 
-const isValidGame = (g) =>
-  Boolean(
-    g &&
-      g.name &&
-      g.developer &&
-      g.cover &&
-      /^(19|20)\d\d-\d\d-\d\d$/.test(g.date || '') &&
-      g.date <= todayIso()
-  );
+const isValidGame = (g) => {
+  if (!g || !g.name || !g.developer || !g.cover) return false;
+  if (isIsoDate(g.date)) return g.date <= todayIso();
+  // Allow games with verified reviews to stay visible even when original release date is unknown
+  return db.reviews.some((r) => String(r.gameId) === String(g.id));
+};
+
+// Verified original launch metadata fallback for iconic console/F2P titles not on Steam
+const KNOWN_TITLE_METADATA = {
+  fortnite: {
+    name: 'Fortnite',
+    date: '2017-07-21',
+    developer: 'Epic Games',
+    publisher: 'Epic Games',
+    platforms: ['pc', 'ps', 'xbox'],
+  },
+  roblox: {
+    name: 'Roblox',
+    date: '2006-09-01',
+    developer: 'Roblox Corporation',
+    publisher: 'Roblox Corporation',
+    platforms: ['pc', 'ps', 'xbox'],
+  },
+  'injustice 2': {
+    name: 'Injustice 2',
+    date: '2017-05-16',
+    developer: 'NetherRealm Studios',
+    publisher: 'Warner Bros. Interactive Entertainment',
+    platforms: ['pc', 'ps', 'xbox'],
+  },
+  'crash bandicoot n sane trilogy': {
+    name: 'Crash Bandicoot N. Sane Trilogy',
+    date: '2017-06-30',
+    developer: 'Vicarious Visions',
+    publisher: 'Activision',
+    platforms: ['pc', 'ps', 'xbox'],
+  },
+  'marvels spider man': {
+    name: "Marvel's Spider-Man",
+    date: '2018-09-07',
+    developer: 'Insomniac Games',
+    publisher: 'Sony Interactive Entertainment',
+    platforms: ['pc', 'ps'],
+  },
+  'gang beasts': {
+    name: 'Gang Beasts',
+    date: '2014-08-29',
+    developer: 'Boneloaf',
+    publisher: 'Boneloaf',
+    platforms: ['pc', 'ps', 'xbox'],
+  },
+  'ea sports fc 27': {
+    date: '2026-09-24',
+    developer: 'EA Canada, EA Romania',
+    publisher: 'Electronic Arts',
+  },
+  'grand theft auto vi': {
+    date: '2026-11-19',
+    developer: 'Rockstar Games',
+    publisher: 'Rockstar Games',
+  },
+};
+
+function cleanDisplayTitle(rawName) {
+  return String(rawName || '')
+    .replace(/\s*[-–—:|]\s*(?:xbox|playstation|ps4\s*[&/]\s*ps5|ps5|ps4|pc)\s*$/i, '')
+    .trim();
+}
+
+async function resolveRealMetadataForTitle(rawName, platform = '') {
+  const cleanName = cleanDisplayTitle(rawName);
+  const key = normalizeTitle(cleanName);
+  const known = KNOWN_TITLE_METADATA[key] || null;
+  if (known && known.date) {
+    return {
+      name: known.name || cleanName,
+      date: known.date,
+      developer: known.developer || '',
+      publisher: known.publisher || '',
+      platforms: known.platforms || (platform ? [platform] : ['pc']),
+    };
+  }
+
+  // 1. Try Wikidata for exact cross-platform original release date & developer
+  try {
+    const wdResults = await searchWikidataGames(cleanName, 6);
+    const wdMatch = wdResults.find((x) => normalizeTitle(x.name) === key && isIsoDate(x.date));
+    if (wdMatch) {
+      return {
+        name: wdMatch.name || cleanName,
+        date: wdMatch.date,
+        developer: wdMatch.developer || '',
+        publisher: wdMatch.publisher || '',
+        platforms: wdMatch.platforms || (platform ? [platform] : ['pc']),
+        generations: wdMatch.generations || [],
+        platformIds: wdMatch.platformIds || {},
+        cover: wdMatch.cover || '',
+        hdr: wdMatch.hdr || '',
+      };
+    }
+  } catch {
+    // Fall through to Steam Store lookup
+  }
+
+  // 2. Try Steam Store public search for exact release date & developer
+  try {
+    const payload = await fetchJsonSafe(
+      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(cleanName)}&l=english&cc=us`
+    );
+    const items = payload.items || [];
+    const hit = items.find((it) => normalizeTitle(it.name) === key);
+    if (hit && hit.id) {
+      const det = await fetchSteamDetails(String(hit.id)).catch(() => null);
+      if (det && isIsoDate(det.date)) {
+        return {
+          name: det.name || cleanName,
+          date: det.date,
+          developer: det.developer || '',
+          publisher: det.publisher || '',
+          platforms: [...new Set(['pc', ...(platform ? [platform] : [])])],
+          platformIds: { steam: String(hit.id) },
+          hdr: det.hdr || '',
+        };
+      }
+    }
+  } catch {
+    // No external date found — never fabricate today's date
+  }
+
+  return { name: cleanName, date: '', developer: '', publisher: '' };
+}
 
 const isBadId = (id) => Boolean(db.bad[id] && Date.now() - db.bad[id] < 1209600000);
 
@@ -1228,11 +1351,16 @@ app.get('/api/games', async (req, res) => {
   let all = db.games.filter(isValidGame);
 
   // On-demand cross-generation live search (Wikidata PS1-PS5 & Xbox-Series X|S + Steam Store + IGDB)
-  const localMatches = searchTerm
-    ? all.filter((g) => g.name.toLowerCase().includes(searchTerm))
-    : all;
+  const normSearch = normalizeTitle(searchTerm);
+  const titleMatches = (name) => {
+    if (!searchTerm) return true;
+    const raw = String(name || '').toLowerCase();
+    if (raw.includes(searchTerm)) return true;
+    return Boolean(normSearch && normalizeTitle(name).includes(normSearch));
+  };
+  const localMatches = searchTerm ? all.filter((g) => titleMatches(g.name)) : all;
   const hasExactMatch = searchTerm
-    ? localMatches.some((g) => normalizeTitle(g.name) === normalizeTitle(searchTerm))
+    ? localMatches.some((g) => normalizeTitle(g.name) === normSearch)
     : true;
 
   if (searchTerm.length >= 3 && (!hasExactMatch || localMatches.length < 5)) {
@@ -1298,7 +1426,7 @@ app.get('/api/games', async (req, res) => {
   const filtered = all.filter(
     (g) =>
       (plat === 'all' || (g.platforms || []).includes(plat)) &&
-      matchesText(g.name, searchTerm) &&
+      titleMatches(g.name) &&
       matchesText(g.developer, Q.dev) &&
       matchesText(g.publisher, Q.pub) &&
       (!Q.from || yearOf(g) >= String(Q.from)) &&
@@ -1308,12 +1436,14 @@ app.get('/api/games', async (req, res) => {
   );
 
   const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' }).compare;
+  const sortDateDesc = (g) => (isIsoDate(g.date) ? g.date : '0000-00-00');
+  const sortDateAsc = (g) => (isIsoDate(g.date) ? g.date : '9999-99-99');
   const comparators = {
     new: (a, b) =>
-      String(b.date).localeCompare(String(a.date)) || (b.trend || 0) - (a.trend || 0) || revCount(b) - revCount(a),
-    old: (a, b) => String(a.date).localeCompare(String(b.date)) || (b.trend || 0) - (a.trend || 0),
+      sortDateDesc(b).localeCompare(sortDateDesc(a)) || (b.trend || 0) - (a.trend || 0) || revCount(b) - revCount(a),
+    old: (a, b) => sortDateAsc(a).localeCompare(sortDateAsc(b)) || (b.trend || 0) - (a.trend || 0),
     trend: (a, b) =>
-      (b.trend || 0) - (a.trend || 0) || revCount(b) - revCount(a) || String(b.date).localeCompare(String(a.date)),
+      (b.trend || 0) - (a.trend || 0) || revCount(b) - revCount(a) || sortDateDesc(b).localeCompare(sortDateDesc(a)),
     top: (a, b) => scoreVal(b) - scoreVal(a) || revCount(b) - revCount(a) || (b.trend || 0) - (a.trend || 0),
     most: (a, b) => revCount(b) - revCount(a) || scoreVal(b) - scoreVal(a) || (b.trend || 0) - (a.trend || 0),
     az: (a, b) => collator(a.name, b.name),
@@ -1665,16 +1795,38 @@ app.post('/api/review', async (req, res) => {
           game = await ingestSteamGame(own.externalId).catch(() => null);
         }
         if (!game) {
-          const cover = own.cover || (await pickCover(own.externalId, '', own.name));
-          game = upsertCanonicalGame(db, byId, {
-            name: own.name,
-            date: own.releaseDate || new Date().toISOString().slice(0, 10),
-            platforms: [platform],
-            platformIds: { [platform === 'pc' ? 'steam' : platform]: own.externalId },
-            developer: own.developer || 'Verified Release',
-            publisher: own.publisher || '',
-            cover,
-          });
+          // Check existing catalog by normalized title first (without fake today date)
+          const ownKey = normalizeTitle(own.name);
+          const existingByTitle = ownKey
+            ? db.games.find((g) => (normalizeTitle(g.name) || g.canonicalKey) === ownKey)
+            : null;
+          if (existingByTitle) {
+            game = upsertCanonicalGame(db, byId, {
+              id: existingByTitle.id,
+              name: existingByTitle.name,
+              platforms: [platform],
+              platformIds: { [platform === 'pc' ? 'steam' : platform]: own.externalId },
+            });
+          } else {
+            const resolved = await resolveRealMetadataForTitle(own.name, platform);
+            const cover = resolved.cover || own.cover || (await pickCover(own.externalId, resolved.hdr || '', resolved.name || own.name));
+            const validOwnDate = isIsoDate(own.releaseDate) && own.releaseDate <= todayIso() ? own.releaseDate : '';
+            const realDate = resolved.date || validOwnDate || '';
+            game = upsertCanonicalGame(db, byId, {
+              name: resolved.name || cleanDisplayTitle(own.name),
+              date: realDate,
+              platforms: [...new Set([platform, ...(resolved.platforms || [])])],
+              ...(resolved.generations?.length ? { generations: resolved.generations } : {}),
+              platformIds: {
+                ...(resolved.platformIds || {}),
+                [platform === 'pc' ? 'steam' : platform]: own.externalId,
+              },
+              developer: resolved.developer || own.developer || 'Verified Release',
+              publisher: resolved.publisher || own.publisher || '',
+              cover,
+              hdr: resolved.hdr || '',
+            });
+          }
         }
       } else {
         upsertCanonicalGame(db, byId, {
@@ -1759,10 +1911,107 @@ async function shutdown(signal) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+async function repairCatalogDatesOnBoot() {
+  const dirty = [];
+  for (const g of db.games) {
+    const key = normalizeTitle(g.name) || g.canonicalKey || '';
+    const known = KNOWN_TITLE_METADATA[key];
+    const isConsolePlaceholder =
+      /^(?:ps|xbox)-/.test(String(g.id)) &&
+      (g.developer === 'Verified Release' || !isIsoDate(g.date) || g.date >= '2026-11-20');
+
+    if (known && (isConsolePlaceholder || (known.date && g.date !== known.date && g.date.endsWith('-01-01')))) {
+      let changed = false;
+      if (known.name && g.name !== known.name && isConsolePlaceholder) {
+        g.name = known.name;
+        changed = true;
+      }
+      if (known.date && g.date !== known.date) {
+        g.date = known.date;
+        changed = true;
+      }
+      if (known.developer && (!g.developer || g.developer === 'Verified Release')) {
+        g.developer = known.developer;
+        changed = true;
+      }
+      if (known.publisher && !g.publisher) {
+        g.publisher = known.publisher;
+        changed = true;
+      }
+      if (Array.isArray(known.platforms)) {
+        const merged = PLATFORM_ORDER.filter((p) => new Set([...(g.platforms || []), ...known.platforms]).has(p));
+        if (merged.length !== (g.platforms || []).length) {
+          g.platforms = merged;
+          changed = true;
+        }
+      }
+      if (changed) {
+        g.canonicalKey = normalizeTitle(g.name);
+        dirty.push(g);
+      }
+      continue;
+    }
+
+    if (isConsolePlaceholder) {
+      const resolved = await resolveRealMetadataForTitle(g.name, (g.platforms || [])[0] || '');
+      let changed = false;
+      const cleanedName = resolved.name || cleanDisplayTitle(g.name);
+      if (cleanedName && cleanedName !== g.name) {
+        g.name = cleanedName;
+        changed = true;
+      }
+      if (resolved.date && resolved.date !== g.date) {
+        g.date = resolved.date;
+        changed = true;
+      } else if (!resolved.date && g.date >= '2026-11-20') {
+        g.date = '';
+        changed = true;
+      }
+      if (resolved.developer && g.developer === 'Verified Release') {
+        g.developer = resolved.developer;
+        changed = true;
+      }
+      if (resolved.publisher && !g.publisher) {
+        g.publisher = resolved.publisher;
+        changed = true;
+      }
+      if (changed) {
+        g.canonicalKey = normalizeTitle(g.name);
+        dirty.push(g);
+      }
+    }
+  }
+
+  if (dirty.length) {
+    console.log(`Repaired release dates/metadata for ${dirty.length} catalog record(s).`);
+    save();
+    if (store.isPostgres) {
+      await store.upsertGamesBatch(dirty).catch((err) => console.warn('Date repair DB save skipped:', err.message));
+    }
+  }
+}
+
 async function startServer() {
   const info = await store.init(db);
   const deduped = deduplicateCatalog(db);
   byId = deduped.byId;
+
+  // Persist any deduplicated/merged placeholder IDs & migrated reviews to PostgreSQL
+  if (store.isPostgres && deduped.idRemap && deduped.idRemap.size > 0) {
+    const mergedTargets = new Set();
+    for (const [oldId, newId] of deduped.idRemap.entries()) {
+      await store.migrateReviewsGameId(oldId, newId).catch((e) => console.warn('Review migrate error:', e.message));
+      await store.deleteGame(oldId).catch((e) => console.warn('Old game delete error:', e.message));
+      const target = byId.get(newId);
+      if (target) mergedTargets.add(target);
+    }
+    if (mergedTargets.size) {
+      await store.upsertGamesBatch([...mergedTargets]).catch(() => {});
+    }
+  }
+
+  await repairCatalogDatesOnBoot();
+
   const enrichedCount = enrichMultiplatformCatalog(db, byId, upsertCanonicalGame);
   if (deduped.mergedCount > 0 || enrichedCount > 0) {
     console.log(
