@@ -32,16 +32,46 @@
       content="Independent 0–100 game scores for Steam, PlayStation, and Xbox — equal weight per verified owner. Zero critic ratings, ever."
     />
     <meta name="twitter:image" content="https://playtested.party/images/after-hours.png" />
+    <meta name="application-name" content="Playtested" />
+    <meta name="apple-mobile-web-app-title" content="Playtested" />
+    <meta name="theme-color" content="#0c0c0c" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "Playtested",
-        "url": "https://playtested.party/",
-        "description": "Verified player-only video game review platform with equal-weight 0–100 scores isolated per platform (Steam, PlayStation, Xbox) and zero critic ratings."
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://playtested.party/#website",
+            "name": "Playtested",
+            "alternateName": ["Playtested.party", "playtested.party"],
+            "url": "https://playtested.party/",
+            "description": "Verified player-only video game review platform with equal-weight 0–100 scores isolated per platform (Steam, PlayStation, Xbox) and zero critic ratings.",
+            "publisher": {
+              "@id": "https://playtested.party/#organization"
+            }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://playtested.party/#organization",
+            "name": "Playtested",
+            "url": "https://playtested.party/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://playtested.party/icon-512.png",
+              "width": 512,
+              "height": 512
+            }
+          }
+        ]
       }
     </script>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
