@@ -60,6 +60,12 @@ const {
   fetchWikipediaCovers,
 } = require('./lib/wikidata');
 const { PlaytestedStore } = require('./lib/store');
+const {
+  REVIEW_QUESTIONS,
+  parseAndValidateBreakdown,
+  computeWeightedScore,
+  normalizeStoredBreakdown,
+} = require('./lib/scoring');
 
 const PORT = Number(process.env.PORT) || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || '';
@@ -701,7 +707,27 @@ function computeScores(gameId) {
         lo: list.filter((r) => r.score < 50).length,
       };
       const legacyOnly = timed.length === 0 && list.every((r) => r.legacy);
-      return [plat, { score: equalMean, n: list.length, avgHours, medianHours, dist, legacyOnly }];
+      const withBreakdown = list.filter((r) => normalizeStoredBreakdown(r.breakdown));
+      let criteriaAvg = null;
+      if (withBreakdown.length) {
+        criteriaAvg = {};
+        for (const q of REVIEW_QUESTIONS) {
+          const sum = withBreakdown.reduce((acc, r) => acc + Number(r.breakdown[q.key]), 0);
+          criteriaAvg[q.key] = Math.round((sum / withBreakdown.length) * 10) / 10;
+        }
+      }
+      return [
+        plat,
+        {
+          score: equalMean,
+          n: list.length,
+          avgHours,
+          medianHours,
+          dist,
+          legacyOnly,
+          ...(criteriaAvg ? { criteriaAvg, criteriaCount: withBreakdown.length } : {}),
+        },
+      ];
     })
   );
 }
@@ -1662,7 +1688,12 @@ app.get('/api/reviews/:id', async (req, res) => {
       if (!acc) continue;
       const found = raw.find((x) => x.platform === p && reviewOwnerId(x) === String(acc.id));
       if (found) {
-        myReviews[p] = { score: found.score, text: found.text || '', hours: found.hours };
+        myReviews[p] = {
+          score: found.score,
+          breakdown: normalizeStoredBreakdown(found.breakdown),
+          text: found.text || '',
+          hours: found.hours,
+        };
       }
     }
   }
@@ -1895,7 +1926,7 @@ app.post('/api/review', async (req, res) => {
   const s = await getSession(req);
   if (!primaryAccount(s)) return res.status(401).json({ error: 'Sign in with a gaming account first.' });
 
-  const { gameId, platform = 'pc', text = '', score } = req.body || {};
+  const { gameId, platform = 'pc', text = '', breakdown } = req.body || {};
   if (!PLATFORM_ORDER.includes(platform)) {
     return res.status(400).json({ error: 'Invalid platform. Must be Steam (pc), PlayStation (ps), or Xbox (xbox).' });
   }
@@ -1906,10 +1937,11 @@ app.post('/api/review', async (req, res) => {
     });
   }
 
-  const numericScore = Math.round(Number(score));
-  if (!Number.isFinite(numericScore) || numericScore < 0 || numericScore > 100) {
-    return res.status(400).json({ error: 'Score must be an integer between 0 and 100.' });
+  const parsedBreakdown = parseAndValidateBreakdown(breakdown);
+  if (!parsedBreakdown.ok) {
+    return res.status(400).json({ error: parsedBreakdown.error });
   }
+  const numericScore = computeWeightedScore(parsedBreakdown.breakdown);
 
   try {
     let game = byId.get(String(gameId)) || null;
@@ -2035,6 +2067,7 @@ app.post('/api/review', async (req, res) => {
       name: account.name,
       avatar: account.avatar,
       score: numericScore,
+      breakdown: parsedBreakdown.breakdown,
       text: String(text).trim().slice(0, 2000),
       hours: verifiedHours,
       ...(isLegacyReview ? { legacy: true, legacyEra: legacyStatus.era } : {}),
@@ -2048,7 +2081,15 @@ app.post('/api/review', async (req, res) => {
       await store.upsertGame(game);
       await store.upsertReview(newReview);
     }
-    res.json({ ok: true, edited: Boolean(existing), legacy: isLegacyReview, gameId: canonicalId, platform });
+    res.json({
+      ok: true,
+      edited: Boolean(existing),
+      legacy: isLegacyReview,
+      gameId: canonicalId,
+      platform,
+      score: numericScore,
+      breakdown: parsedBreakdown.breakdown,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

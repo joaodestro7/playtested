@@ -296,6 +296,64 @@
   // ---- Utilities ----
   const scoreClass = (s) => (s == null ? 'na' : s >= 75 ? 'hi' : s >= 50 ? 'mid' : 'lo');
 
+  const REVIEW_QUESTIONS = [
+    {
+      key: 'fun',
+      num: 1,
+      label: 'Is the game fun?',
+      shortLabel: 'Fun',
+      tooltip:
+        'Games are made primarily so we can have fun, so tell here how much you enjoyed your time in this game.',
+      weight: 5,
+    },
+    {
+      key: 'performance',
+      num: 2,
+      label: 'Is the game performance good?',
+      shortLabel: 'Performance',
+      tooltip: 'Consider minimum and recommended specs.',
+      weight: 1.5,
+    },
+    {
+      key: 'gameplay',
+      num: 3,
+      label: 'Is the gameplay loop good?',
+      shortLabel: 'Gameplay loop',
+      tooltip: 'Consider the main premises and mechanics here and how engaging they are.',
+      weight: 2,
+    },
+    {
+      key: 'visuals',
+      num: 4,
+      label: 'Does the game look good?',
+      shortLabel: 'Visuals',
+      tooltip:
+        'Keep in mind that the art direction can be pixel art and a game can still look good in that design.',
+      weight: 1.5,
+    },
+  ];
+
+  function calcWeightedBreakdown(answers) {
+    if (!answers || typeof answers !== 'object') return null;
+    let raw = 0;
+    for (const q of REVIEW_QUESTIONS) {
+      const v = answers[q.key];
+      if (!Number.isInteger(v) || v < 0 || v > 10) return null;
+      raw += v * q.weight;
+    }
+    return Math.min(100, Math.max(0, Math.round(raw)));
+  }
+
+  function renderReviewBreakdownPills(breakdown) {
+    if (!breakdown || typeof breakdown !== 'object') return '';
+    const valid = REVIEW_QUESTIONS.every((q) => Number.isInteger(breakdown[q.key]));
+    if (!valid) return '';
+    return `<div class="review-criteria-pills" aria-label="Score breakdown">${REVIEW_QUESTIONS.map(
+      (q) =>
+        `<span class="review-criteria-pill" title="${esc(q.label)}"><span>${esc(q.shortLabel)}</span><strong>${breakdown[q.key]}/10</strong></span>`
+    ).join('')}</div>`;
+  }
+
   function verdictFor(score) {
     if (score >= 95) return 'Essential';
     if (score >= 85) return 'Great';
@@ -799,6 +857,7 @@
               </div>
               <span class="feed-score-badge ${scoreClass(r.score)}" title="${PLAT_LABELS[r.platform] || r.platform} verified score">${r.score}</span>
             </button>
+            ${renderReviewBreakdownPills(r.breakdown)}
             ${
               r.text
                 ? `<p class="feed-review-text">${esc(r.text)}</p>`
@@ -1633,29 +1692,42 @@
     }
   }
 
+  function syncReviewSubmitState() {
+    const submitBtn = $('#submit-review-btn');
+    if (!submitBtn) return;
+    const total = calcWeightedBreakdown(state.modalDraftBreakdown);
+    const eligible = Boolean(state.modalEligibilityAllowed);
+    submitBtn.disabled = !eligible || total === null;
+  }
+
   function updateModalEligibilityBadge() {
     const pill = $('#modal-eligibility');
-    const submitBtn = $('#submit-review-btn');
     const statusEl = $('#review-form-status');
-    if (!pill || !state.modalEligibility) return;
+    if (!pill || !state.modalEligibility) {
+      syncReviewSubmitState();
+      return;
+    }
     const p = state.modalRatePlatform;
     const info = state.modalEligibility[p];
-    if (!info) return;
+    if (!info) {
+      syncReviewSubmitState();
+      return;
+    }
 
     const refreshHtml = ` <button type="button" class="inline-refresh-link" id="modal-refresh-lib-btn">↻ Refresh ${esc(PLAT_LABELS[p])} library</button>`;
 
     if (info.released === false) {
       pill.className = 'eligibility-pill err';
       pill.textContent = `Not released on ${PLAT_LABELS[p]}`;
-      if (submitBtn) submitBtn.disabled = true;
+      state.modalEligibilityAllowed = false;
     } else if (!info.connected) {
       pill.className = 'eligibility-pill muted';
       pill.textContent = `Connect ${PLAT_LABELS[p]} to rate`;
-      if (submitBtn) submitBtn.disabled = true;
+      state.modalEligibilityAllowed = false;
     } else if (info.legacy) {
       pill.className = 'eligibility-pill classic';
       pill.textContent = `✦ Classic Era (${info.legacyEra || 'Legacy'}) · Account verified`;
-      if (submitBtn) submitBtn.disabled = false;
+      state.modalEligibilityAllowed = true;
     } else if (info.error) {
       pill.className = 'eligibility-pill warn';
       pill.textContent = 'Library check unavailable';
@@ -1663,7 +1735,7 @@
         statusEl.className = 'form-status err';
         statusEl.innerHTML = `${esc(info.error)}${refreshHtml}`;
       }
-      if (submitBtn) submitBtn.disabled = true;
+      state.modalEligibilityAllowed = false;
     } else if (!info.owned) {
       pill.className = 'eligibility-pill err';
       pill.textContent = `Not in your ${PLAT_LABELS[p]} library`;
@@ -1672,7 +1744,7 @@
         const msg = `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`;
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
-      if (submitBtn) submitBtn.disabled = true;
+      state.modalEligibilityAllowed = false;
     } else if (!info.eligible) {
       pill.className = 'eligibility-pill warn';
       pill.textContent = `${info.hours}h played · Need ${info.minHours}h+`;
@@ -1681,7 +1753,7 @@
         const msg = `Play at least ${Math.max(0.1, info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} to unlock reviewing.`;
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
-      if (submitBtn) submitBtn.disabled = true;
+      state.modalEligibilityAllowed = false;
     } else {
       pill.className = 'eligibility-pill ok';
       pill.textContent = `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
@@ -1689,8 +1761,9 @@
         statusEl.className = 'form-status';
         statusEl.textContent = '';
       }
-      if (submitBtn) submitBtn.disabled = false;
+      state.modalEligibilityAllowed = true;
     }
+    syncReviewSubmitState();
   }
 
   function renderGameModalShell(g, payload = null) {
@@ -1705,7 +1778,16 @@
     const linked = connectedPlatforms();
     const isPlatConnected = linked.includes(activePlat);
     const year = g.date ? g.date.slice(0, 4) : 'Unknown';
-    const initialScore = myReview ? myReview.score : 80;
+    const existingBreakdown = myReview && myReview.breakdown ? myReview.breakdown : null;
+    state.modalDraftBreakdown = {
+      fun: Number.isInteger(existingBreakdown?.fun) ? existingBreakdown.fun : null,
+      performance: Number.isInteger(existingBreakdown?.performance) ? existingBreakdown.performance : null,
+      gameplay: Number.isInteger(existingBreakdown?.gameplay) ? existingBreakdown.gameplay : null,
+      visuals: Number.isInteger(existingBreakdown?.visuals) ? existingBreakdown.visuals : null,
+    };
+    state.modalEligibilityAllowed = Boolean(legacyInfo.legacy);
+    const initialCalculated = calcWeightedBreakdown(state.modalDraftBreakdown);
+    const initialAnsweredCount = REVIEW_QUESTIONS.filter((q) => Number.isInteger(state.modalDraftBreakdown[q.key])).length;
     const initialText = myReview ? myReview.text : '';
     const backdropUrl = g.hdr || g.cover || '';
 
@@ -1737,6 +1819,7 @@
           ${['pc', 'ps', 'xbox']
             .map((p) => {
               const releasedHere = gamePlats.includes(p);
+              const isActiveCard = releasedHere && activePlat === p;
               const s = scores[p];
               const subText = !releasedHere
                 ? `Not released on ${PLAT_LABELS[p]}`
@@ -1745,7 +1828,7 @@
                     ? `${s.n} ${s.n === 1 ? 'review' : 'reviews'} · Classic era`
                     : `${s.n} ${s.n === 1 ? 'review' : 'reviews'}${s.avgHours ? ` · avg ${s.avgHours}h` : ''}`
                   : 'No verified reviews';
-              return `<div class="modal-score-card ${scoreClass(s && s.score)} ${releasedHere ? '' : 'is-unreleased'}">
+              return `<div class="modal-score-card ${scoreClass(s && s.score)} ${releasedHere ? 'is-selectable' : 'is-unreleased'} ${isActiveCard ? 'is-active-plat' : ''}" ${releasedHere ? `data-rate-plat="${p}" role="button" tabindex="0" aria-pressed="${isActiveCard ? 'true' : 'false'}"` : ''}>
                 <div class="modal-score-top">
                   <span>${PLAT_LABELS[p]}</span>
                   ${platIcon(p)}
@@ -1759,29 +1842,52 @@
 
         ${(() => {
           const activeSc = scores[activePlat];
-          if (!activeSc || !activeSc.n) return '';
-          const d = activeSc.dist || { hi: 0, mid: 0, lo: 0 };
-          const hiPct = Math.round((d.hi / activeSc.n) * 100);
-          const midPct = Math.round((d.mid / activeSc.n) * 100);
-          const loPct = Math.max(0, 100 - hiPct - midPct);
-          const hoursMeta = activeSc.legacyOnly
-            ? 'Classic Era · account verified'
-            : `Median ${activeSc.medianHours || activeSc.avgHours || 0}h · Avg ${activeSc.avgHours || 0}h played`;
+          const hasReviews = Boolean(activeSc && activeSc.n);
+          const criteriaAvg = activeSc?.criteriaAvg || null;
+          const d = activeSc?.dist || { hi: 0, mid: 0, lo: 0 };
+          const hiPct = hasReviews ? Math.round((d.hi / activeSc.n) * 100) : 0;
+          const midPct = hasReviews ? Math.round((d.mid / activeSc.n) * 100) : 0;
+          const loPct = hasReviews ? Math.max(0, 100 - hiPct - midPct) : 0;
+          const hoursMeta = hasReviews
+            ? activeSc.legacyOnly
+              ? 'Classic Era · account verified'
+              : `Median ${activeSc.medianHours || activeSc.avgHours || 0}h · Avg ${activeSc.avgHours || 0}h played`
+            : 'No verified ratings yet';
           return `<div class="score-breakdown-box">
             <div class="score-breakdown-head">
-              <strong>${PLAT_LABELS[activePlat]} Equal-Weight Breakdown (${activeSc.n} ${activeSc.n === 1 ? 'review' : 'reviews'})</strong>
-              <span>1 verified owner = 1 equal vote · ${hoursMeta}</span>
+              <strong>${PLAT_LABELS[activePlat]} Score Breakdown${hasReviews ? ` (${activeSc.n} ${activeSc.n === 1 ? 'review' : 'reviews'})` : ''}</strong>
+              <span>Total avg: <b class="breakdown-total-inline ${scoreClass(activeSc && activeSc.score)}">${hasReviews ? `${activeSc.score}/100` : '–'}</b> · ${hoursMeta}</span>
             </div>
-            <div class="score-dist-bar" aria-label="Score distribution for ${PLAT_LABELS[activePlat]}">
-              ${d.hi ? `<span class="score-dist-seg hi" style="width:${hiPct}%"></span>` : ''}
-              ${d.mid ? `<span class="score-dist-seg mid" style="width:${midPct}%"></span>` : ''}
-              ${d.lo ? `<span class="score-dist-seg lo" style="width:${loPct}%"></span>` : ''}
+            <div class="criteria-avg-grid" aria-label="Average scores across all 4 metrics for ${PLAT_LABELS[activePlat]}">
+              ${REVIEW_QUESTIONS.map((q) => {
+                const rawVal = criteriaAvg ? criteriaAvg[q.key] : null;
+                const hasVal = rawVal !== null && rawVal !== undefined && Number.isFinite(Number(rawVal));
+                const avg = hasVal ? Number(rawVal) : 0;
+                const pct = hasVal ? Math.min(100, Math.max(0, Math.round((avg / 10) * 100))) : 0;
+                const tier = !hasVal ? 'na' : avg >= 7.5 ? 'hi' : avg >= 5 ? 'mid' : 'lo';
+                return `<div class="criteria-avg-item">
+                  <div class="criteria-avg-top">
+                    <span>${esc(q.shortLabel)}</span>
+                    <strong class="${tier}">${hasVal ? avg.toFixed(1) : '–'}<small>/10</small></strong>
+                  </div>
+                  <div class="criteria-avg-bar"><span class="${tier}" style="width:${pct}%"></span></div>
+                </div>`;
+              }).join('')}
             </div>
-            <div class="score-breakdown-legend">
-              <span><i class="legend-swatch hi"></i>Positive (75–100): ${d.hi}</span>
-              <span><i class="legend-swatch mid"></i>Mixed (50–74): ${d.mid}</span>
-              <span><i class="legend-swatch lo"></i>Negative (0–49): ${d.lo}</span>
-            </div>
+            ${
+              hasReviews
+                ? `<div class="score-dist-bar" aria-label="Score distribution for ${PLAT_LABELS[activePlat]}">
+                    ${d.hi ? `<span class="score-dist-seg hi" style="width:${hiPct}%"></span>` : ''}
+                    ${d.mid ? `<span class="score-dist-seg mid" style="width:${midPct}%"></span>` : ''}
+                    ${d.lo ? `<span class="score-dist-seg lo" style="width:${loPct}%"></span>` : ''}
+                  </div>
+                  <div class="score-breakdown-legend">
+                    <span><i class="legend-swatch hi"></i>Positive (75–100): ${d.hi}</span>
+                    <span><i class="legend-swatch mid"></i>Mixed (50–74): ${d.mid}</span>
+                    <span><i class="legend-swatch lo"></i>Negative (0–49): ${d.lo}</span>
+                  </div>`
+                : ''
+            }
           </div>`;
         })()}
 
@@ -1821,19 +1927,65 @@
                 ? `<div class="legacy-banner"><strong>Classic Era Review:</strong> ${esc(legacyInfo.reason)}. Ownership &amp; playtime checks are waived for this classic, while your verified ${PLAT_LABELS[activePlat]} login is still required (one review per account).</div>`
                 : `<p class="rate-isolation-note">Allocates strictly to the <strong>${PLAT_LABELS[activePlat]}</strong> score — never mixed with other platforms.</p>`
             }
-            <form id="review-form" class="review-form">
-              <div class="score-slider-row">
-                <label for="score-range" style="font-size:13px;font-weight:600;color:var(--muted);">Score</label>
-                <input id="score-range" type="range" min="0" max="100" value="${initialScore}" />
-                <input id="score-number" class="score-number-input" type="number" min="0" max="100" value="${initialScore}" aria-label="Score 0 to 100" />
-                <span id="score-verdict" class="verdict-chip ${scoreClass(initialScore)}">${verdictFor(initialScore)}</span>
+            <form id="review-form" class="review-form" novalidate>
+              ${
+                myReview && !existingBreakdown
+                  ? `<p class="legacy-score-migrate-note">Your existing review has a score of <strong>${myReview.score}</strong>. Answer all 4 mandatory questions below to update it.</p>`
+                  : ''
+              }
+              <div class="score-questions-list" id="score-questions-list">
+                ${REVIEW_QUESTIONS.map((q) => {
+                  const cur = state.modalDraftBreakdown[q.key];
+                  const hasVal = Number.isInteger(cur);
+                  const valText = hasVal ? `${cur} / 10` : '0–10';
+                  return `<fieldset class="score-question-card ${hasVal ? 'is-answered' : ''}" data-q-key="${q.key}">
+                    <div class="score-question-head">
+                      <div class="score-question-title-wrap">
+                        <span class="score-question-num">Q${q.num}</span>
+                        <legend class="score-question-label">${esc(q.label)} <span class="score-question-req" aria-hidden="true">*</span></legend>
+                        <span class="q-tip-wrap">
+                          <button type="button" class="q-tip-btn" aria-label="Tooltip for ${esc(q.label)}" aria-expanded="false">?</button>
+                          <span class="q-tip-pop" role="tooltip">${esc(q.tooltip)}</span>
+                        </span>
+                      </div>
+                      <span class="score-question-pts" data-q-pts="${q.key}">${valText}</span>
+                    </div>
+                    <div class="score-scale-row" role="radiogroup" aria-label="${esc(q.label)} (0 to 10)">
+                      ${Array.from({ length: 11 }, (_, n) => {
+                        const selected = cur === n;
+                        return `<button type="button" class="score-scale-btn ${selected ? 'is-selected' : ''}" role="radio" aria-checked="${selected ? 'true' : 'false'}" data-q-key="${q.key}" data-q-val="${n}">${n}</button>`;
+                      }).join('')}
+                    </div>
+                  </fieldset>`;
+                }).join('')}
               </div>
+
+              <div class="weighted-total-bar" id="weighted-total-bar">
+                <div class="weighted-total-meta">
+                  <span class="weighted-total-label">Final Score</span>
+                  <span class="weighted-total-sub" id="weighted-total-sub">${
+                    initialCalculated !== null
+                      ? 'Calculated from your 4 answers'
+                      : `Answer all 4 mandatory questions (${initialAnsweredCount}/4 answered)`
+                  }</span>
+                </div>
+                <div class="weighted-total-readout">
+                  <span id="score-total-num" class="weighted-total-num ${scoreClass(initialCalculated)}">${
+                    initialCalculated !== null ? initialCalculated : '—'
+                  }</span>
+                  <span class="weighted-total-denom">/ 100</span>
+                  <span id="score-verdict" class="verdict-chip ${initialCalculated !== null ? scoreClass(initialCalculated) : 'pending'}">${
+                    initialCalculated !== null ? verdictFor(initialCalculated) : 'Incomplete'
+                  }</span>
+                </div>
+              </div>
+
               <textarea id="review-text" class="review-textarea" maxlength="2000" placeholder="Share your honest experience playing on ${PLAT_LABELS[activePlat]} (optional)…">${esc(initialText)}</textarea>
               <div class="review-form-actions">
                 <span class="char-count"><span id="review-chars">${initialText.length}</span> / 2000</span>
                 <div style="display:flex;gap:10px;align-items:center;">
                   ${myReview ? '<button type="button" class="btn-danger" id="delete-review-btn">Delete review</button>' : ''}
-                  <button type="submit" class="btn-primary" id="submit-review-btn">${myReview ? `Update ${PLAT_LABELS[activePlat]} review` : `Publish ${PLAT_LABELS[activePlat]} review`}</button>
+                  <button type="submit" class="btn-primary" id="submit-review-btn" ${initialCalculated === null || !state.modalEligibilityAllowed ? 'disabled' : ''}>${myReview ? `Update ${PLAT_LABELS[activePlat]} review` : `Publish ${PLAT_LABELS[activePlat]} review`}</button>
                 </div>
               </div>
               <div id="review-form-status" class="form-status" role="status"></div>
@@ -1912,6 +2064,7 @@
             }</span>
             <span class="review-score-pill ${scoreClass(r.score)}">${r.score}</span>
           </div>
+          ${renderReviewBreakdownPills(r.breakdown)}
           ${r.text ? `<p class="review-item-body">${esc(r.text)}</p>` : ''}
           <div class="review-item-date">${formatDate(r.ts)}${r.edited ? ' · edited' : ''}</div>
         </article>`
@@ -1920,8 +2073,9 @@
   }
 
   function bindModalInteractions(game) {
-    const range = $('#score-range');
-    const num = $('#score-number');
+    const questionsHost = $('#score-questions-list');
+    const totalNum = $('#score-total-num');
+    const totalSub = $('#weighted-total-sub');
     const verdict = $('#score-verdict');
     const textarea = $('#review-text');
     const chars = $('#review-chars');
@@ -1929,18 +2083,91 @@
     const delBtn = $('#delete-review-btn');
     const sortSel = $('#modal-review-sort');
 
-    const syncScore = (val) => {
-      const clamped = Math.min(100, Math.max(0, Math.round(Number(val) || 0)));
-      if (range) range.value = String(clamped);
-      if (num) num.value = String(clamped);
-      if (verdict) {
-        verdict.textContent = verdictFor(clamped);
-        verdict.className = `verdict-chip ${scoreClass(clamped)}`;
-      }
+    const closeAllTooltips = (exceptWrap = null) => {
+      if (!questionsHost) return;
+      questionsHost.querySelectorAll('.q-tip-wrap.is-open').forEach((wrap) => {
+        if (wrap === exceptWrap) return;
+        wrap.classList.remove('is-open');
+        const btn = wrap.querySelector('.q-tip-btn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      });
     };
 
-    if (range) range.oninput = () => syncScore(range.value);
-    if (num) num.oninput = () => syncScore(num.value);
+    const syncWeightedPreview = () => {
+      const answers = state.modalDraftBreakdown || {};
+      const answeredCount = REVIEW_QUESTIONS.filter((q) => Number.isInteger(answers[q.key])).length;
+      const total = calcWeightedBreakdown(answers);
+
+      for (const q of REVIEW_QUESTIONS) {
+        const val = answers[q.key];
+        const card = questionsHost?.querySelector(`.score-question-card[data-q-key="${q.key}"]`);
+        const ptsEl = questionsHost?.querySelector(`[data-q-pts="${q.key}"]`);
+        const hasVal = Number.isInteger(val);
+        if (card) {
+          card.classList.toggle('is-answered', hasVal);
+          if (hasVal) card.classList.remove('is-missing');
+        }
+        if (ptsEl) {
+          ptsEl.textContent = hasVal ? `${val} / 10` : '0–10';
+        }
+      }
+
+      if (totalNum) {
+        totalNum.textContent = total !== null ? String(total) : '—';
+        totalNum.className = `weighted-total-num ${scoreClass(total)}`;
+      }
+      if (totalSub) {
+        totalSub.textContent =
+          total !== null
+            ? 'Calculated from your 4 answers'
+            : `Answer all 4 mandatory questions (${answeredCount}/4 answered)`;
+      }
+      if (verdict) {
+        if (total !== null) {
+          verdict.textContent = verdictFor(total);
+          verdict.className = `verdict-chip ${scoreClass(total)}`;
+        } else {
+          verdict.textContent = 'Incomplete';
+          verdict.className = 'verdict-chip pending';
+        }
+      }
+      syncReviewSubmitState();
+    };
+
+    if (questionsHost) {
+      questionsHost.addEventListener('click', (e) => {
+        const tipBtn = e.target.closest('.q-tip-btn');
+        if (tipBtn) {
+          e.preventDefault();
+          const wrap = tipBtn.closest('.q-tip-wrap');
+          const willOpen = !wrap.classList.contains('is-open');
+          closeAllTooltips(willOpen ? wrap : null);
+          wrap.classList.toggle('is-open', willOpen);
+          tipBtn.setAttribute('aria-expanded', String(willOpen));
+          return;
+        }
+        const scaleBtn = e.target.closest('.score-scale-btn');
+        if (scaleBtn) {
+          closeAllTooltips();
+          const key = scaleBtn.dataset.qKey;
+          const val = Number(scaleBtn.dataset.qVal);
+          if (!key || !Number.isInteger(val) || val < 0 || val > 10) return;
+          state.modalDraftBreakdown[key] = val;
+          const group = scaleBtn.closest('.score-scale-row');
+          if (group) {
+            group.querySelectorAll('.score-scale-btn').forEach((btn) => {
+              const active = btn === scaleBtn;
+              btn.classList.toggle('is-selected', active);
+              btn.setAttribute('aria-checked', String(active));
+            });
+          }
+          syncWeightedPreview();
+          return;
+        }
+        closeAllTooltips();
+      });
+    }
+
     if (textarea && chars) {
       textarea.oninput = () => {
         chars.textContent = String(textarea.value.length);
@@ -1961,6 +2188,19 @@
         const status = $('#review-form-status');
         const submitBtn = $('#submit-review-btn');
         const plat = state.modalRatePlatform;
+        const calculated = calcWeightedBreakdown(state.modalDraftBreakdown);
+        if (calculated === null) {
+          for (const q of REVIEW_QUESTIONS) {
+            if (!Number.isInteger(state.modalDraftBreakdown?.[q.key])) {
+              const card = questionsHost?.querySelector(`.score-question-card[data-q-key="${q.key}"]`);
+              if (card) card.classList.add('is-missing');
+            }
+          }
+          status.className = 'form-status err';
+          status.textContent = 'Please answer all 4 mandatory questions (0–10) before publishing.';
+          return;
+        }
+
         status.className = 'form-status';
         status.textContent = `Verifying your ${PLAT_LABELS[plat]} library & playtime…`;
         submitBtn.disabled = true;
@@ -1972,7 +2212,7 @@
             body: JSON.stringify({
               gameId: game.id,
               platform: plat,
-              score: Number(num.value),
+              breakdown: state.modalDraftBreakdown,
               text: textarea.value,
             }),
           });
@@ -1980,18 +2220,19 @@
           if (!res.ok) {
             status.className = 'form-status err';
             status.textContent = data.error || 'Could not save review.';
-            submitBtn.disabled = false;
+            syncReviewSubmitState();
             return;
           }
           if (!data.edited) {
             trackMarketingEvent('review', plat);
           }
+          const finalScore = Number.isFinite(Number(data.score)) ? Number(data.score) : calculated;
           showToast(
             data.edited
-              ? `${PLAT_LABELS[plat]} verified review updated!`
-              : `${PLAT_LABELS[plat]} verified review published!`
+              ? `${PLAT_LABELS[plat]} verified review updated! (${finalScore}/100)`
+              : `${PLAT_LABELS[plat]} verified review published! (${finalScore}/100)`
           );
-          syncLocalLibraryReviewState(data.gameId || game.id, plat, Number(num.value));
+          syncLocalLibraryReviewState(data.gameId || game.id, plat, finalScore);
           await openGameModal(data.gameId || game.id, game, plat);
           loadCatalog();
           loadStats();
@@ -2002,7 +2243,7 @@
         } catch (err) {
           status.className = 'form-status err';
           status.textContent = err.message || 'Network error.';
-          submitBtn.disabled = false;
+          syncReviewSubmitState();
         }
       };
     }
