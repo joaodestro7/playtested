@@ -1437,9 +1437,9 @@
         PlayStation, or Xbox so ownership and playtime can be verified.
       </div>
       <div class="provider-note" style="margin-top:10px;">
-        <strong>Epic Games Store currently unavailable:</strong> Epic Games does not offer a public API to verify owned
-        libraries and playtime like Steam’s. We won’t ask users for full-account access codes, so Epic support is on hold
-        until a safe public API is available.
+        <strong>Epic Games Store &amp; Nintendo currently unavailable:</strong> Neither Epic Games nor Nintendo offers a
+        public API to verify owned libraries and playtime like Steam’s. We won’t ask users for full-account access
+        codes, so support for both is on hold until safe public APIs are available.
       </div>
     </div></div>`;
 
