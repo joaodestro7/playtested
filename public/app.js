@@ -1436,6 +1436,11 @@
         your gaming accounts. Ensure your library/gaming history privacy is set to <strong>Public</strong> on Steam,
         PlayStation, or Xbox so ownership and playtime can be verified.
       </div>
+      <div class="provider-note" style="margin-top:10px;">
+        <strong>Epic Games Store currently unavailable:</strong> Epic Games does not offer a public API to verify owned
+        libraries and playtime like Steam’s. We won’t ask users for full-account access codes, so Epic support is on hold
+        until a safe public API is available.
+      </div>
     </div></div>`;
 
     bindPsnAuthEvents();
