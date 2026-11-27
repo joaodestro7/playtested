@@ -506,6 +506,99 @@ a {
   transform: translateX(26px);
 }
 
+/* Compact Flag Language Dropdown */
+.lang-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px 0 6px;
+  border-radius: 99px;
+  background: var(--panel);
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.lang-trigger:hover,
+.lang-switch.is-open .lang-trigger {
+  background: var(--panel-hover);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.lang-flag-svg {
+  width: 19px;
+  height: 13px;
+  border-radius: 2px;
+  display: block;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22);
+}
+.lang-chevron {
+  width: 11px;
+  height: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.16s ease, color 0.16s ease;
+}
+.lang-switch.is-open .lang-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+.lang-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 168px;
+  padding: 5px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-lg);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-soft);
+  text-align: left;
+  white-space: nowrap;
+}
+.lang-option:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+.lang-option.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.lang-option-label {
+  flex: 1;
+}
+.lang-option-check {
+  font-size: 12px;
+  opacity: 0;
+  color: var(--accent);
+}
+.lang-option.is-active .lang-option-check {
+  opacity: 1;
+}
+
 /* ---- Atmospheric Hero (Cycling Recent High-Profile Games) ---- */
 .hero {
   position: relative;
@@ -1196,6 +1289,8 @@ h2 {
 
 .quick-sorts {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   background: var(--panel);
   border: 0;
   border-radius: var(--radius-sm);
@@ -1208,6 +1303,7 @@ h2 {
   font-size: 12.5px;
   font-weight: 500;
   color: var(--muted);
+  white-space: nowrap;
 }
 .quick-sort:hover {
   color: var(--text);
@@ -1820,6 +1916,7 @@ h2 {
   padding: 4px 9px;
   border-radius: 99px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .lib-tag.reviewed {
   background: var(--score-hi-bg);
@@ -3216,6 +3313,12 @@ dialog.confirm-modal {
 
 /* ---- Responsive ---- */
 @media (max-width: 1180px) {
+  .header-inner {
+    gap: 22px;
+  }
+  .primary-nav {
+    gap: 18px;
+  }
   .spotlight-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -3226,13 +3329,13 @@ dialog.confirm-modal {
 
 @media (max-width: 1024px) {
   .header-inner {
-    gap: 18px;
+    gap: 16px;
   }
   .search-box {
-    width: 200px;
+    width: 190px;
   }
   .search-box:focus-within {
-    width: 230px;
+    width: 220px;
   }
   .catalog-layout {
     grid-template-columns: 1fr;
@@ -3391,6 +3494,16 @@ dialog.confirm-modal {
 }
 
 @media (max-width: 520px) {
+  .user-controls {
+    gap: 6px;
+  }
+  .user-chip {
+    padding: 3px 8px 3px 3px;
+    gap: 6px;
+  }
+  .user-name {
+    max-width: 76px;
+  }
   .auth-modal-body {
     padding: 22px 18px;
   }

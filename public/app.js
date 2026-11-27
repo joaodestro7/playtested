@@ -6,6 +6,18 @@
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  const I18N = window.PlaytestedI18n;
+  const t = (key, vars) => (I18N ? I18N.t(key, vars) : key);
+  const currentLocale = () => (I18N ? I18N.locale() : 'en-US');
+  const fmtNum = (n) => {
+    const num = Number(n || 0);
+    try {
+      return num.toLocaleString(currentLocale());
+    } catch {
+      return num.toLocaleString();
+    }
+  };
+
   const PLAT_LABELS = { pc: 'Steam', ps: 'PlayStation', xbox: 'Xbox' };
 
   // Official monochrome brand SVGs (Steam & PlayStation via Simple Icons; Xbox via Font Awesome Free)
@@ -30,15 +42,10 @@
     return `<svg class="plat-svg plat-svg-${plat} ${extraClass}" viewBox="${spec.vb}" fill="currentColor" aria-hidden="true"><path d="${spec.d}"/></svg>`;
   }
 
-  const SORT_TITLES = {
-    trend: 'Trending now',
-    new: 'Newest releases',
-    old: 'Oldest releases',
-    top: 'Top rated',
-    most: 'Most reviewed',
-    az: 'Games A to Z',
-    za: 'Games Z to A',
-  };
+  function sortTitleFor(sortKey) {
+    const valid = ['trend', 'new', 'old', 'top', 'most', 'az', 'za'];
+    return t(valid.includes(sortKey) ? `catalog.title.${sortKey}` : 'catalog.title.default');
+  }
 
   const ST1 = 'https://cdn.akamai.steamstatic.com/steam/apps/';
   const ST2 = 'https://cdn.cloudflare.steamstatic.com/steam/apps/';
@@ -119,13 +126,14 @@
     function renderMeta(idx) {
       const item = slides[idx];
       if (captionTitle) captionTitle.textContent = item.name;
-      if (captionSub) captionSub.textContent = item.sub;
-      if (captionBtn) captionBtn.setAttribute('aria-label', `Open featured game ${item.name}`);
+      if (captionSub) captionSub.textContent = t('hero.release2026');
+      if (captionBtn) captionBtn.setAttribute('aria-label', t('hero.openFeaturedAria', { name: item.name }));
       if (indexNum) indexNum.textContent = `${pad2(idx + 1)} / ${pad2(slides.length)}`;
       if (dotsWrap) {
         $$('.hero-dot-btn', dotsWrap).forEach((btn, i) => {
           btn.classList.toggle('is-active', i === idx);
           btn.setAttribute('aria-pressed', i === idx ? 'true' : 'false');
+          if (slides[i]) btn.setAttribute('aria-label', t('hero.showSlideAria', { name: slides[i].name }));
         });
       }
     }
@@ -173,7 +181,7 @@
       dotsWrap.innerHTML = slides
         .map(
           (s, i) =>
-            `<button type="button" class="hero-dot-btn${i === 0 ? ' is-active' : ''}" data-idx="${i}" aria-label="Show ${esc(s.name)}" aria-pressed="${i === 0 ? 'true' : 'false'}"></button>`
+            `<button type="button" class="hero-dot-btn${i === 0 ? ' is-active' : ''}" data-idx="${i}" aria-label="${esc(t('hero.showSlideAria', { name: s.name }))}" aria-pressed="${i === 0 ? 'true' : 'false'}"></button>`
         )
         .join('');
       dotsWrap.addEventListener('click', (e) => {
@@ -195,6 +203,7 @@
     renderMeta(0);
     preloadNext(0);
     restartTimer();
+    state.refreshHeroMeta = () => renderMeta(current);
   }
 
   const state = {
@@ -229,6 +238,9 @@
     xboxChallenge: null,
     lastModalCloseTs: 0,
     utm: null,
+    lastCatalogData: null,
+    lastReviewsFeedData: null,
+    refreshHeroMeta: null,
   };
 
   // ---- Privacy-First Zero-Cookie UTM Attribution ----
@@ -297,41 +309,15 @@
   const scoreClass = (s) => (s == null ? 'na' : s >= 75 ? 'hi' : s >= 50 ? 'mid' : 'lo');
 
   const REVIEW_QUESTIONS = [
-    {
-      key: 'fun',
-      num: 1,
-      label: 'Is the game fun?',
-      shortLabel: 'Fun',
-      tooltip:
-        'Games are made primarily so we can have fun, so tell here how much you enjoyed your time in this game.',
-      weight: 5,
-    },
-    {
-      key: 'performance',
-      num: 2,
-      label: 'Is the game performance good?',
-      shortLabel: 'Performance',
-      tooltip: 'Consider minimum and recommended specs.',
-      weight: 1.5,
-    },
-    {
-      key: 'gameplay',
-      num: 3,
-      label: 'Is the gameplay loop good?',
-      shortLabel: 'Gameplay loop',
-      tooltip: 'Consider the main premises and mechanics here and how engaging they are.',
-      weight: 2,
-    },
-    {
-      key: 'visuals',
-      num: 4,
-      label: 'Does the game look good?',
-      shortLabel: 'Visuals',
-      tooltip:
-        'Keep in mind that the art direction can be pixel art and a game can still look good in that design.',
-      weight: 1.5,
-    },
+    { key: 'fun', num: 1, weight: 5 },
+    { key: 'performance', num: 2, weight: 1.5 },
+    { key: 'gameplay', num: 3, weight: 2 },
+    { key: 'visuals', num: 4, weight: 1.5 },
   ];
+
+  const qLabel = (q) => t(`q.${q.key}.label`);
+  const qShort = (q) => t(`q.${q.key}.short`);
+  const qTip = (q) => t(`q.${q.key}.tip`);
 
   function calcWeightedBreakdown(answers) {
     if (!answers || typeof answers !== 'object') return null;
@@ -348,19 +334,19 @@
     if (!breakdown || typeof breakdown !== 'object') return '';
     const valid = REVIEW_QUESTIONS.every((q) => Number.isInteger(breakdown[q.key]));
     if (!valid) return '';
-    return `<div class="review-criteria-pills" aria-label="Score breakdown">${REVIEW_QUESTIONS.map(
+    return `<div class="review-criteria-pills" aria-label="${esc(t('game.breakdownAria'))}">${REVIEW_QUESTIONS.map(
       (q) =>
-        `<span class="review-criteria-pill" title="${esc(q.label)}"><span>${esc(q.shortLabel)}</span><strong>${breakdown[q.key]}/10</strong></span>`
+        `<span class="review-criteria-pill" title="${esc(qLabel(q))}"><span>${esc(qShort(q))}</span><strong>${breakdown[q.key]}/10</strong></span>`
     ).join('')}</div>`;
   }
 
   function verdictFor(score) {
-    if (score >= 95) return 'Essential';
-    if (score >= 85) return 'Great';
-    if (score >= 70) return 'Good';
-    if (score >= 50) return 'Mixed';
-    if (score >= 30) return 'Rough';
-    return 'Poor';
+    if (score >= 95) return t('verdict.essential');
+    if (score >= 85) return t('verdict.great');
+    if (score >= 70) return t('verdict.good');
+    if (score >= 50) return t('verdict.mixed');
+    if (score >= 30) return t('verdict.rough');
+    return t('verdict.poor');
   }
 
   function formatCompact(n) {
@@ -368,13 +354,15 @@
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 10_000) return `${Math.round(n / 1000)}k`;
     if (n >= 1_000) return `${(n / 1000).toFixed(1)}k`;
-    return n.toLocaleString();
+    return fmtNum(n);
   }
 
   function formatDate(ts) {
     if (!ts) return '';
     try {
-      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(ts));
+      return new Intl.DateTimeFormat(currentLocale(), { month: 'short', day: 'numeric', year: 'numeric' }).format(
+        new Date(ts)
+      );
     } catch {
       return '';
     }
@@ -431,7 +419,7 @@
   function coverImg(game, className = '') {
     const isSteam = /^\d+$/.test(String(game.id || ''));
     const src = game.cover || (isSteam ? `${ST1}${game.id}/library_600x900.jpg` : placeholderSvg(game.name));
-    return `<img class="${className}" loading="lazy" referrerpolicy="no-referrer" alt="${esc(game.name)} cover" src="${esc(src)}" data-id="${esc(game.id)}" data-name="${esc(game.name)}" data-hdr="${esc(game.hdr || '')}" onerror="handleCoverError(this)" />`;
+    return `<img class="${className}" loading="lazy" referrerpolicy="no-referrer" alt="${esc(t('cover.alt', { name: game.name }))}" src="${esc(src)}" data-id="${esc(game.id)}" data-name="${esc(game.name)}" data-hdr="${esc(game.hdr || '')}" onerror="handleCoverError(this)" />`;
   }
 
   function scoreTrioHtml(scores) {
@@ -439,8 +427,14 @@
       .map((p) => {
         const entry = scores && scores[p];
         const tip = entry
-          ? `${PLAT_LABELS[p]} score: ${entry.score}/100 from ${entry.n} verified ${entry.n === 1 ? 'review' : 'reviews'}${entry.avgHours ? ` (avg ${entry.avgHours}h played)` : ''}`
-          : `${PLAT_LABELS[p]}: no verified reviews yet`;
+          ? t('score.tip', {
+              platform: PLAT_LABELS[p],
+              score: entry.score,
+              n: entry.n,
+              reviewWord: entry.n === 1 ? t('catalog.reviewOne') : t('catalog.reviewMany'),
+              avgPart: entry.avgHours ? t('score.tipAvg', { hours: entry.avgHours }) : '',
+            })
+          : t('score.tipNone', { platform: PLAT_LABELS[p] });
         return `<span class="score-pill ${scoreClass(entry && entry.score)}" title="${esc(tip)}">
           <strong>${entry ? entry.score : '–'}</strong>
           <i>${platIcon(p)}</i>
@@ -465,10 +459,44 @@
     return ['pc', 'ps', 'xbox'].filter((p) => Boolean(state.me.accounts[p]));
   }
 
+  // ---- Language Switch (Compact Flag Dropdown) ----
+  function langSwitchHtml() {
+    if (!I18N) return '';
+    const cur = I18N.getLang();
+    return `<div class="lang-switch" data-lang-switch>
+      <button type="button" class="lang-trigger" data-action="toggle-lang-menu" aria-haspopup="menu" aria-expanded="false" aria-label="${esc(t('lang.aria'))}" title="${esc(t('lang.title'))}">
+        ${I18N.flagSvg(cur)}
+        <svg class="lang-chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 4.5 6 7.5 9 4.5"/>
+        </svg>
+      </button>
+      <div class="lang-menu" role="menu" aria-label="${esc(t('lang.aria'))}" hidden>
+        ${I18N.LANGUAGES.map((l) => {
+          const active = l.code === cur;
+          return `<button type="button" class="lang-option ${active ? 'is-active' : ''}" role="menuitemradio" aria-checked="${active ? 'true' : 'false'}" data-set-lang="${esc(l.code)}">
+            ${I18N.flagSvg(l.code)}
+            <span class="lang-option-label">${esc(l.label)}</span>
+            <span class="lang-option-check" aria-hidden="true">✓</span>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  function closeLangMenus() {
+    $$('[data-lang-switch].is-open').forEach((wrap) => {
+      wrap.classList.remove('is-open');
+      const btn = wrap.querySelector('.lang-trigger');
+      const menu = wrap.querySelector('.lang-menu');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      if (menu) menu.hidden = true;
+    });
+  }
+
   // ---- Theme Switch ----
   function themeSwitchHtml() {
     const isDark = document.documentElement.dataset.theme !== 'light';
-    return `<button type="button" class="theme-toggle" role="switch" aria-checked="${isDark}" aria-label="Toggle dark mode" title="Switch light or dark theme" data-action="toggle-theme">
+    return `<button type="button" class="theme-toggle" role="switch" aria-checked="${isDark}" aria-label="${esc(t('theme.aria'))}" title="${esc(t('theme.title'))}" data-action="toggle-theme">
       <span class="theme-toggle-knob">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
@@ -500,23 +528,25 @@
         ? `<img src="${esc(state.me.avatar)}" referrerpolicy="no-referrer" alt="${esc(state.me.name)}" />`
         : `<span class="user-avatar-fallback" aria-hidden="true">${initial}</span>`;
       host.innerHTML = `
-        <button type="button" class="user-chip" data-action="open-auth" title="Manage connected Steam, PlayStation, and Xbox accounts">
+        <button type="button" class="user-chip" data-action="open-auth" title="${esc(t('auth.manageTitle'))}">
           ${avatarHtml}
           <span class="user-name">${esc(state.me.name)}</span>
-          <span class="user-plat-dots" aria-label="Connected platforms">${linked.map((p) => platIcon(p)).join('')}</span>
+          <span class="user-plat-dots" aria-label="${esc(t('auth.connectedPlatsAria'))}">${linked.map((p) => platIcon(p)).join('')}</span>
         </button>
+        ${langSwitchHtml()}
         ${themeSwitchHtml()}
-        <button type="button" class="btn-outline" data-action="confirm-logout">Sign out</button>
+        <button type="button" class="btn-outline" data-action="confirm-logout">${esc(t('auth.signOut'))}</button>
       `;
-      $('#hero-auth-btn').innerHTML = `Open my libraries <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
-      $('#banner-cta-btn').innerHTML = `Manage accounts &amp; rate <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
+      $('#hero-auth-btn').innerHTML = `${esc(t('hero.openLibrariesCta'))} <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
+      $('#banner-cta-btn').innerHTML = `${esc(t('banner.ctaUser'))} <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
     } else {
       host.innerHTML = `
+        ${langSwitchHtml()}
         ${themeSwitchHtml()}
-        <button type="button" class="btn-primary" data-action="open-auth">Sign in</button>
+        <button type="button" class="btn-primary" data-action="open-auth">${esc(t('auth.signIn'))}</button>
       `;
-      $('#hero-auth-btn').innerHTML = `Sign in to rate games <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
-      $('#banner-cta-btn').innerHTML = `Connect gaming accounts <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
+      $('#hero-auth-btn').innerHTML = `${esc(t('hero.signInCta'))} <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
+      $('#banner-cta-btn').innerHTML = `${esc(t('banner.ctaGuest'))} <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg>`;
     }
   }
 
@@ -541,14 +571,19 @@
   }
 
   // ---- Stats & Spotlight ----
+  function renderStatsNumbers() {
+    if (!state.stats) return;
+    $('#stat-games').textContent = fmtNum(state.stats.indexed);
+    $('#stat-reviews').textContent = fmtNum(state.stats.totalReviews);
+    $('#stat-hours').textContent = `${formatCompact(state.stats.totalVerifiedHours)}h`;
+  }
+
   async function loadStats() {
     try {
       const res = await fetch('/api/stats');
       const data = await res.json();
       state.stats = data;
-      $('#stat-games').textContent = data.indexed.toLocaleString();
-      $('#stat-reviews').textContent = data.totalReviews.toLocaleString();
-      $('#stat-hours').textContent = `${formatCompact(data.totalVerifiedHours)}h`;
+      renderStatsNumbers();
       const coffeeBtn = $('#coffee-donate-btn');
       if (coffeeBtn) {
         if (data.donateUrl) {
@@ -584,17 +619,23 @@
             <img loading="lazy" referrerpolicy="no-referrer" src="${esc(imgSrc)}" alt="${esc(g.name)}" data-id="${esc(g.id)}" data-name="${esc(g.name)}" data-hdr="${esc(g.hdr || '')}" onerror="handleCoverError(this)" />
             ${
               score != null
-                ? `<span class="spotlight-score-float ${scoreClass(score)}" title="${PLAT_LABELS[plat]} isolated score">${platIcon(plat)} ${score} <small>/ 100</small></span>`
+                ? `<span class="spotlight-score-float ${scoreClass(score)}" title="${esc(t('spotlight.isolatedTip', { platform: PLAT_LABELS[plat] }))}">${platIcon(plat)} ${score} <small>/ 100</small></span>`
                 : ''
             }
           </div>
           <div class="spotlight-body">
             <div class="spotlight-title">${esc(g.name)}</div>
-            ${hl ? `<p class="spotlight-quote">“${esc(hl.text)}”</p>` : `<p class="spotlight-quote">${g.reviews} verified player ${g.reviews === 1 ? 'review' : 'reviews'}</p>`}
+            ${
+              hl
+                ? `<p class="spotlight-quote">“${esc(hl.text)}”</p>`
+                : `<p class="spotlight-quote">${esc(
+                    t(g.reviews === 1 ? 'spotlight.verifiedReviewOne' : 'spotlight.verifiedReviewMany', { n: g.reviews })
+                  )}</p>`
+            }
             <div class="spotlight-author">
               ${hl?.avatar ? `<img src="${esc(hl.avatar)}" referrerpolicy="no-referrer" alt="" />` : ''}
               <span><strong>${esc(hl ? hl.name : g.developer)}</strong></span>
-              ${hl ? `<span class="spotlight-hours">${hl.hours}h played</span>` : `<span>${esc(g.date.slice(0, 4))}</span>`}
+              ${hl ? `<span class="spotlight-hours">${esc(t('spotlight.hoursPlayed', { hours: hl.hours }))}</span>` : `<span>${esc(g.date.slice(0, 4))}</span>`}
             </div>
           </div>
         </button>`;
@@ -628,22 +669,22 @@
     const playtime = $('#f-playtime')?.value || '';
     const rev = $('#f-reviewed').checked;
 
-    if (q) pills.push({ key: 'q', label: `Search: “${q}”` });
-    if (state.platform !== 'all') pills.push({ key: 'platform', label: `Platform: ${PLAT_LABELS[state.platform]}` });
-    if (from || to) pills.push({ key: 'year', label: `Year: ${from || 'Any'} – ${to || 'Any'}` });
-    if (dev) pills.push({ key: 'dev', label: `Dev: ${dev}` });
-    if (pub) pills.push({ key: 'pub', label: `Pub: ${pub}` });
-    if (min) pills.push({ key: 'min', label: `Score ≥ ${min}` });
+    if (q) pills.push({ key: 'q', label: t('pill.search', { q }) });
+    if (state.platform !== 'all') pills.push({ key: 'platform', label: t('pill.platform', { platform: PLAT_LABELS[state.platform] }) });
+    if (from || to) pills.push({ key: 'year', label: t('pill.year', { from: from || t('pill.any'), to: to || t('pill.any') }) });
+    if (dev) pills.push({ key: 'dev', label: t('pill.dev', { dev }) });
+    if (pub) pills.push({ key: 'pub', label: t('pill.pub', { pub }) });
+    if (min) pills.push({ key: 'min', label: t('pill.min', { min }) });
     if (playtime) {
-      const ptLabels = {
-        low: 'Low (≤ 80h)',
-        medium: 'Medium (80.1h–200h)',
-        high: 'High (200.1h–1,500h)',
-        second_job: 'Second Job (1,500h+)',
+      const ptKeys = {
+        low: 'catalog.playtime.low',
+        medium: 'catalog.playtime.medium',
+        high: 'catalog.playtime.high',
+        second_job: 'catalog.playtime.second_job',
       };
-      pills.push({ key: 'playtime', label: `Playtime: ${ptLabels[playtime] || playtime}` });
+      pills.push({ key: 'playtime', label: t('pill.playtime', { label: ptKeys[playtime] ? t(ptKeys[playtime]) : playtime }) });
     }
-    if (rev) pills.push({ key: 'reviewed', label: 'Reviewed only' });
+    if (rev) pills.push({ key: 'reviewed', label: t('pill.reviewed') });
 
     const badge = $('#filter-count-badge');
     badge.textContent = String(pills.length);
@@ -658,9 +699,64 @@
     host.hidden = false;
     host.innerHTML = pills
       .map(
-        (p) => `<span class="filter-pill">${esc(p.label)} <button type="button" data-clear-filter="${p.key}" aria-label="Remove filter">✕</button></span>`
+        (p) => `<span class="filter-pill">${esc(p.label)} <button type="button" data-clear-filter="${p.key}" aria-label="${esc(t('pill.removeAria'))}">✕</button></span>`
       )
       .join('');
+  }
+
+  function renderCatalogData(data) {
+    if (!data) return;
+    const q = $('#search-input').value.trim();
+    state.games = data.items || [];
+    state.page = data.page;
+    state.pages = data.pages;
+    if (typeof data.indexed === 'number') {
+      $('#stat-games').textContent = fmtNum(data.indexed);
+    }
+
+    const titleText = q ? t('catalog.title.search', { q }) : sortTitleFor(state.sort);
+    $('#catalog-title').innerHTML = `${esc(titleText)}<span class="accent-dot">.</span>`;
+    $('#catalog-count').textContent = t('catalog.countLine', {
+      total: fmtNum(data.total),
+      gameWord: data.total === 1 ? t('catalog.gameOne') : t('catalog.gameMany'),
+      indexed: fmtNum(data.indexed),
+      knownPart: data.known ? t('catalog.knownPart', { known: fmtNum(data.known) }) : '',
+    });
+
+    if (!state.games.length) {
+      $('#game-grid').innerHTML = `<div class="empty-state">
+        <h3>${esc(data.indexed ? t('catalog.emptyTitle') : t('catalog.indexingTitle'))}</h3>
+        <p>${esc(data.indexed ? t('catalog.emptyBody') : t('catalog.indexingBody'))}</p>
+        ${data.indexed ? `<button type="button" class="btn-outline" id="empty-reset-btn">${esc(t('catalog.resetAllFilters'))}</button>` : ''}
+      </div>`;
+    } else {
+      $('#game-grid').innerHTML = state.games
+        .map((g) => {
+          const year = g.date ? g.date.slice(0, 4) : '—';
+          const peakBadge =
+            g.trend && g.trend >= 15000
+              ? `<span class="card-badge-peak" title="${esc(t('catalog.peakTitle'))}"><span class="peak-dot"></span>${formatCompact(g.trend)}</span>`
+              : '';
+          return `<button type="button" class="game-card" data-open-game="${esc(g.id)}">
+            <div class="card-cover">
+              ${coverImg(g)}
+              ${peakBadge}
+              <span class="card-hover-cta">${esc(t('catalog.hoverCta'))}</span>
+            </div>
+            <div class="card-body">
+              <h3 class="card-title">${esc(g.name)}</h3>
+              <div class="card-meta">
+                <span>${esc(year)}</span>
+                <span>${g.reviews} ${esc(g.reviews === 1 ? t('catalog.reviewOne') : t('catalog.reviewMany'))}</span>
+              </div>
+              ${scoreTrioHtml(g.scores)}
+            </div>
+          </button>`;
+        })
+        .join('');
+    }
+
+    renderPager();
   }
 
   async function loadCatalog() {
@@ -703,64 +799,17 @@
       const data = await res.json();
       if (id !== state.reqId) return;
 
-      state.games = data.items || [];
-      state.page = data.page;
-      state.pages = data.pages;
-      if (typeof data.indexed === 'number') {
-        $('#stat-games').textContent = data.indexed.toLocaleString();
+      state.lastCatalogData = data;
+      renderCatalogData(data);
+      if (!data.items?.length && !data.indexed) {
+        setTimeout(loadCatalog, 5000);
       }
-
-      const titleText = q ? `Results for “${q}”` : SORT_TITLES[state.sort] || 'Catalog';
-      $('#catalog-title').innerHTML = `${esc(titleText)}<span class="accent-dot">.</span>`;
-      $('#catalog-count').textContent =
-        `${data.total.toLocaleString()} unique ${data.total === 1 ? 'game' : 'games'} matching · ` +
-        `${data.indexed.toLocaleString()}${data.known ? ' of ' + data.known.toLocaleString() : ''} cross-platform titles indexed & deduplicated.`;
-
-      if (!state.games.length) {
-        $('#game-grid').innerHTML = `<div class="empty-state">
-          <h3>${data.indexed ? 'No games match these filters.' : 'Indexing catalog…'}</h3>
-          <p>${
-            data.indexed
-              ? 'Try widening your year range, clearing developer filters, or searching another title.'
-              : 'Playtested is validating covers and deduplicating metadata in the background.'
-          }</p>
-          ${data.indexed ? '<button type="button" class="btn-outline" id="empty-reset-btn">Reset all filters</button>' : ''}
-        </div>`;
-        if (!data.indexed) setTimeout(loadCatalog, 5000);
-      } else {
-        $('#game-grid').innerHTML = state.games
-          .map((g) => {
-            const year = g.date ? g.date.slice(0, 4) : '—';
-            const peakBadge =
-              g.trend && g.trend >= 15000
-                ? `<span class="card-badge-peak" title="Peak concurrent players this week"><span class="peak-dot"></span>${formatCompact(g.trend)}</span>`
-                : '';
-            return `<button type="button" class="game-card" data-open-game="${esc(g.id)}">
-              <div class="card-cover">
-                ${coverImg(g)}
-                ${peakBadge}
-                <span class="card-hover-cta">Inspect &amp; rate →</span>
-              </div>
-              <div class="card-body">
-                <h3 class="card-title">${esc(g.name)}</h3>
-                <div class="card-meta">
-                  <span>${esc(year)}</span>
-                  <span>${g.reviews} ${g.reviews === 1 ? 'review' : 'reviews'}</span>
-                </div>
-                ${scoreTrioHtml(g.scores)}
-              </div>
-            </button>`;
-          })
-          .join('');
-      }
-
-      renderPager();
     } catch (err) {
       if (id !== state.reqId) return;
       $('#game-grid').innerHTML = `<div class="empty-state">
-        <h3>Could not load catalog</h3>
-        <p>${esc(err.message || 'Check that the Playtested server is running and try again.')}</p>
-        <button type="button" class="btn-primary" id="retry-catalog-btn">Retry</button>
+        <h3>${esc(t('catalog.loadErrorTitle'))}</h3>
+        <p>${esc(err.message || t('catalog.loadErrorFallback'))}</p>
+        <button type="button" class="btn-primary" id="retry-catalog-btn">${esc(t('catalog.retry'))}</button>
       </div>`;
     }
   }
@@ -773,15 +822,15 @@
     }
     pager.innerHTML = `
       <button type="button" class="btn-outline" data-page-delta="-1" ${state.page <= 1 ? 'disabled' : ''}>
-        ← Previous
+        ${esc(t('catalog.prev'))}
       </button>
       <label class="pager-jump">
-        Page
-        <input id="page-jump-input" type="number" min="1" max="${state.pages}" value="${state.page}" aria-label="Jump to page number" />
-        of ${state.pages.toLocaleString()}
+        ${esc(t('catalog.page'))}
+        <input id="page-jump-input" type="number" min="1" max="${state.pages}" value="${state.page}" aria-label="${esc(t('catalog.jumpPageAria'))}" />
+        ${esc(t('catalog.ofPages', { pages: fmtNum(state.pages) }))}
       </label>
       <button type="button" class="btn-outline" data-page-delta="1" ${state.page >= state.pages ? 'disabled' : ''}>
-        Next →
+        ${esc(t('catalog.next'))}
       </button>
     `;
   }
@@ -818,64 +867,77 @@
   }
 
   // ---- Reviews Feed View ----
+  function renderReviewsFeedData(data) {
+    const host = $('#reviews-feed-list');
+    if (!data) return;
+    $('#reviews-feed-count').textContent = t('reviews.countLine', {
+      total: fmtNum(data.total),
+      reviewWord: data.total === 1 ? t('catalog.reviewOne') : t('catalog.reviewMany'),
+      scope:
+        state.revFeedPlat !== 'all'
+          ? t('reviews.scopePlatform', { platform: PLAT_LABELS[state.revFeedPlat] })
+          : t('reviews.scopeAll'),
+    });
+
+    if (!data.items.length) {
+      host.innerHTML = `<div class="empty-state">
+        <h3>${esc(t('reviews.emptyTitle'))}</h3>
+        <p>${esc(t('reviews.emptyBody'))}</p>
+        <button type="button" class="btn-primary" data-action="open-auth">${esc(t('banner.ctaGuest'))}</button>
+      </div>`;
+      return;
+    }
+
+    host.innerHTML = data.items
+      .map((r) => {
+        const fakeGame = {
+          id: r.gameId,
+          name: r.gameName,
+          cover: r.gameCover,
+          hdr: r.gameHdr,
+        };
+        const platLabel = PLAT_LABELS[r.platform] || r.platform;
+        return `<article class="feed-card">
+          <button type="button" class="feed-game-row" data-open-game="${esc(r.gameId)}">
+            ${coverImg(fakeGame)}
+            <div class="feed-game-info">
+              <h3 class="feed-game-title">${esc(r.gameName)}</h3>
+              <div class="feed-game-meta">
+                ${esc(r.gameDeveloper || t('reviews.verifiedTitle'))}${r.gameYear ? ' · ' + esc(r.gameYear) : ''}
+              </div>
+            </div>
+            <span class="feed-score-badge ${scoreClass(r.score)}" title="${esc(t('reviews.verifiedScoreTitle', { platform: platLabel }))}">${r.score}</span>
+          </button>
+          ${renderReviewBreakdownPills(r.breakdown)}
+          ${
+            r.text
+              ? `<p class="feed-review-text">${esc(r.text)}</p>`
+              : `<p class="feed-review-text" style="color:var(--muted);font-style:italic;">${esc(t('reviews.scoreOnly'))}</p>`
+          }
+          <div class="feed-review-footer">
+            ${r.avatar ? `<img src="${esc(r.avatar)}" referrerpolicy="no-referrer" alt="" />` : ''}
+            <strong>${esc(r.name)}</strong>
+            ${r.legacy ? `<span class="classic-pill">${esc(t('reviews.classicPill'))}</span>` : `<span class="verified-pill">${esc(t('reviews.verifiedPill'))}</span>`}
+            <span class="feed-hours" title="${esc(t(r.legacy ? 'reviews.legacyTitle' : 'reviews.playtimeTitle', { platform: platLabel }))}">
+              ${r.legacy ? esc(r.legacyEra || t('reviews.classicFallback')) : `${r.hours}h`} ${platIcon(r.platform)}
+            </span>
+          </div>
+        </article>`;
+      })
+      .join('');
+  }
+
   async function loadReviewsFeed() {
     const host = $('#reviews-feed-list');
-    host.innerHTML = '<p class="section-description">Loading verified player reviews…</p>';
+    host.innerHTML = `<p class="section-description">${esc(t('reviews.loadingPlayer'))}</p>`;
     try {
       const params = new URLSearchParams({ sort: state.revFeedSort, platform: state.revFeedPlat });
       const res = await fetch('/api/reviews?' + params.toString());
       const data = await res.json();
-      $('#reviews-feed-count').textContent = `${data.total.toLocaleString()} verified owner ${
-        data.total === 1 ? 'review' : 'reviews'
-      }${state.revFeedPlat !== 'all' ? ' on ' + PLAT_LABELS[state.revFeedPlat] : ' across Steam, PlayStation, and Xbox'}. Every score is strictly isolated to its platform.`;
-
-      if (!data.items.length) {
-        host.innerHTML = `<div class="empty-state">
-          <h3>No verified reviews for this platform yet.</h3>
-          <p>Connect your Steam, PlayStation, or Xbox account to publish the first verified owner score here.</p>
-          <button type="button" class="btn-primary" data-action="open-auth">Connect gaming accounts</button>
-        </div>`;
-        return;
-      }
-
-      host.innerHTML = data.items
-        .map((r) => {
-          const fakeGame = {
-            id: r.gameId,
-            name: r.gameName,
-            cover: r.gameCover,
-            hdr: r.gameHdr,
-          };
-          return `<article class="feed-card">
-            <button type="button" class="feed-game-row" data-open-game="${esc(r.gameId)}">
-              ${coverImg(fakeGame)}
-              <div class="feed-game-info">
-                <h3 class="feed-game-title">${esc(r.gameName)}</h3>
-                <div class="feed-game-meta">
-                  ${esc(r.gameDeveloper || 'Verified title')}${r.gameYear ? ' · ' + esc(r.gameYear) : ''}
-                </div>
-              </div>
-              <span class="feed-score-badge ${scoreClass(r.score)}" title="${PLAT_LABELS[r.platform] || r.platform} verified score">${r.score}</span>
-            </button>
-            ${renderReviewBreakdownPills(r.breakdown)}
-            ${
-              r.text
-                ? `<p class="feed-review-text">${esc(r.text)}</p>`
-                : `<p class="feed-review-text" style="color:var(--muted);font-style:italic;">Score-only verified rating.</p>`
-            }
-            <div class="feed-review-footer">
-              ${r.avatar ? `<img src="${esc(r.avatar)}" referrerpolicy="no-referrer" alt="" />` : ''}
-              <strong>${esc(r.name)}</strong>
-              ${r.legacy ? `<span class="classic-pill">✦ Classic Era</span>` : `<span class="verified-pill">✓ Verified</span>`}
-              <span class="feed-hours" title="${r.legacy ? `Account-verified classic on ${PLAT_LABELS[r.platform] || r.platform}` : `Verified playtime on ${PLAT_LABELS[r.platform] || r.platform}`}">
-                ${r.legacy ? esc(r.legacyEra || 'Classic') : `${r.hours}h`} ${platIcon(r.platform)}
-              </span>
-            </div>
-          </article>`;
-        })
-        .join('');
+      state.lastReviewsFeedData = data;
+      renderReviewsFeedData(data);
     } catch (err) {
-      host.innerHTML = `<div class="empty-state"><h3>Could not load reviews</h3><p>${esc(err.message)}</p></div>`;
+      host.innerHTML = `<div class="empty-state"><h3>${esc(t('reviews.loadErrorTitle'))}</h3><p>${esc(err.message)}</p></div>`;
     }
   }
 
@@ -1018,10 +1080,10 @@
   function formatSyncAge(ts) {
     if (!ts) return '';
     const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
-    if (mins < 1) return 'Synced just now';
-    if (mins < 60) return `Synced ${mins}m ago`;
+    if (mins < 1) return t('library.syncJustNow');
+    if (mins < 60) return t('library.syncMinsAgo', { n: mins });
     const hrs = Math.round(mins / 60);
-    return `Synced ${hrs}h ago`;
+    return t('library.syncHoursAgo', { n: hrs });
   }
 
   function deriveInstantEligibilityFromCache(game) {
@@ -1085,19 +1147,14 @@
     const linked = connectedPlatforms();
     if (!linked.length) {
       host.innerHTML = `<div class="library-auth-card">
-        <h3>Connect your gaming accounts</h3>
-        <p>
-          Link Steam, PlayStation, or Xbox so Playtested can verify which games you own and your real playtime
-          (2h+ required per platform). Each platform’s reviews stay strictly isolated to its own score.
-        </p>
+        <h3>${esc(t('library.connectTitle'))}</h3>
+        <p>${esc(t('library.connectBody'))}</p>
         <div class="provider-stack">
-          <a class="provider-btn-outline" href="/auth/steam">${platIcon('pc')} Connect Steam</a>
-          <button type="button" class="provider-btn-outline" data-action="open-psn-connect">${platIcon('ps')} Connect PlayStation Network</button>
-          <button type="button" class="provider-btn-outline" data-action="open-xbox-connect">${platIcon('xbox')} Connect Xbox Live</button>
+          <a class="provider-btn-outline" href="/auth/steam">${platIcon('pc')} ${esc(t('library.connectSteam'))}</a>
+          <button type="button" class="provider-btn-outline" data-action="open-psn-connect">${platIcon('ps')} ${esc(t('library.connectPsn'))}</button>
+          <button type="button" class="provider-btn-outline" data-action="open-xbox-connect">${platIcon('xbox')} ${esc(t('library.connectXbox'))}</button>
         </div>
-        <div class="provider-note">
-          <strong>Privacy tip:</strong> Make sure your game library / gaming history privacy is set to <strong>Public / Anyone</strong> on your platform so Playtested can verify ownership and hours played.
-        </div>
+        <div class="provider-note">${t('library.privacyTipHtml')}</div>
       </div>`;
       return;
     }
@@ -1115,26 +1172,26 @@
       }
     }
 
-    host.innerHTML = `<p class="section-description">Syncing your ${PLAT_LABELS[state.libPlatform]} library…</p>`;
+    host.innerHTML = `<p class="section-description">${esc(t('library.syncing', { platform: PLAT_LABELS[state.libPlatform] }))}</p>`;
     try {
       const data = await ensurePlatformLibrary(state.libPlatform, { forceRefresh });
       state.library = data;
       renderLibraryList(linked);
-      if (forceRefresh) showToast(`${PLAT_LABELS[state.libPlatform]} library refreshed!`);
+      if (forceRefresh) showToast(t('library.refreshedToast', { platform: PLAT_LABELS[state.libPlatform] }));
     } catch (err) {
       host.innerHTML = `
         ${renderLibraryPlatformTabs(linked)}
         <div class="empty-state">
-          <h3>Could not read your ${PLAT_LABELS[state.libPlatform]} library</h3>
-          <p>${esc(err.message || 'Check your platform privacy settings and try again.')}</p>
-          <button type="button" class="btn-primary" id="retry-lib-btn">Try again</button>
+          <h3>${esc(t('library.errorTitle', { platform: PLAT_LABELS[state.libPlatform] }))}</h3>
+          <p>${esc(err.message || t('library.errorFallback'))}</p>
+          <button type="button" class="btn-primary" id="retry-lib-btn">${esc(t('library.tryAgain'))}</button>
         </div>`;
     }
   }
 
   function renderLibraryPlatformTabs(linked) {
     const syncAge = formatSyncAge(state.library?.syncedAt);
-    return `<div class="library-plat-tabs" role="tablist" aria-label="Select connected platform library">
+    return `<div class="library-plat-tabs" role="tablist" aria-label="${esc(t('library.tabsAria'))}">
       ${['pc', 'ps', 'xbox']
         .map((p) => {
           const isLinked = linked.includes(p);
@@ -1144,14 +1201,14 @@
             </button>`;
           }
           return `<button type="button" class="library-plat-tab" data-action="open-auth" style="opacity:0.65;">
-            ${platIcon(p)} + Link ${PLAT_LABELS[p]}
+            ${platIcon(p)} ${esc(t('library.linkPlatform', { platform: PLAT_LABELS[p] }))}
           </button>`;
         })
         .join('')}
       <div class="library-sync-meta">
         ${syncAge ? `<span class="library-sync-age">${esc(syncAge)}</span>` : ''}
-        <button type="button" class="btn-refresh-lib" id="refresh-lib-btn" title="Re-fetch your latest games and playtime">
-          ↻ Refresh library
+        <button type="button" class="btn-refresh-lib" id="refresh-lib-btn" title="${esc(t('library.refreshTitle'))}">
+          ${esc(t('library.refreshBtn'))}
         </button>
       </div>
     </div>`;
@@ -1179,23 +1236,23 @@
     host.innerHTML = `
       ${renderLibraryPlatformTabs(linked)}
       <div class="library-summary">
-        <div class="lib-stat-card"><strong>${items.length.toLocaleString()}</strong><span>${platName} games</span></div>
-        <div class="lib-stat-card"><strong>${totalHours.toLocaleString()}h</strong><span>Total ${platName} playtime</span></div>
-        <div class="lib-stat-card"><strong>${eligibleCount.toLocaleString()}</strong><span>Eligible (${data.minHours}h+)</span></div>
-        <div class="lib-stat-card"><strong>${reviewedCount.toLocaleString()}</strong><span>Reviewed on ${platName}</span></div>
+        <div class="lib-stat-card"><strong>${fmtNum(items.length)}</strong><span>${esc(t('library.statGames', { platform: platName }))}</span></div>
+        <div class="lib-stat-card"><strong>${fmtNum(totalHours)}h</strong><span>${esc(t('library.statPlaytime', { platform: platName }))}</span></div>
+        <div class="lib-stat-card"><strong>${fmtNum(eligibleCount)}</strong><span>${esc(t('library.statEligible', { hours: data.minHours }))}</span></div>
+        <div class="lib-stat-card"><strong>${fmtNum(reviewedCount)}</strong><span>${esc(t('library.statReviewed', { platform: platName }))}</span></div>
       </div>
       <div class="library-controls">
-        <input id="lib-search-input" class="library-search" type="search" placeholder="Filter your ${items.length} ${platName} games…" value="${esc(state.libQuery)}" />
+        <input id="lib-search-input" class="library-search" type="search" placeholder="${esc(t('library.filterPlaceholder', { n: items.length, platform: platName }))}" value="${esc(state.libQuery)}" />
         <div class="quick-sorts" style="display:inline-flex">
           ${[
-            ['all', 'All'],
-            ['eligible', `Ready to rate (${eligibleCount - reviewedCount})`],
-            ['reviewed', `Reviewed (${reviewedCount})`],
-            ['locked', `Under ${data.minHours}h`],
+            ['all', t('library.filterAll')],
+            ['eligible', t('library.filterReady', { n: eligibleCount - reviewedCount })],
+            ['reviewed', t('library.filterReviewed', { n: reviewedCount })],
+            ['locked', t('library.filterLocked', { hours: data.minHours })],
           ]
             .map(
               ([k, lbl]) =>
-                `<button type="button" class="quick-sort ${state.libFilter === k ? 'is-active' : ''}" data-lib-filter="${k}">${lbl}</button>`
+                `<button type="button" class="quick-sort ${state.libFilter === k ? 'is-active' : ''}" data-lib-filter="${k}">${esc(lbl)}</button>`
             )
             .join('')}
         </div>
@@ -1208,21 +1265,21 @@
                 .map((x) => {
                   const reqHours = typeof x.minHours === 'number' ? x.minHours : data.minHours;
                   const tag = x.reviewed
-                    ? `<span class="lib-tag reviewed">Rated · ${x.myScore}</span>`
+                    ? `<span class="lib-tag reviewed">${esc(t('library.tagRated', { score: x.myScore }))}</span>`
                     : x.eligible
-                      ? `<span class="lib-tag eligible">Rate on ${platName}</span>`
-                      : `<span class="lib-tag locked">Need ${Math.max(0.1, reqHours - x.hours).toFixed(1)}h</span>`;
+                      ? `<span class="lib-tag eligible">${esc(t('library.tagRateOn', { platform: platName }))}</span>`
+                      : `<span class="lib-tag locked">${esc(t('library.tagNeedHours', { hours: Math.max(0.1, reqHours - x.hours).toFixed(1) }))}</span>`;
                   return `<button type="button" class="library-row" data-open-lib-game="${esc(x.id)}">
                     ${coverImg(x)}
                     <div class="library-row-info">
                       <div class="library-row-name">${esc(x.name)}</div>
-                      <div class="library-row-sub">${x.hours}h played on ${platName}</div>
+                      <div class="library-row-sub">${esc(t('library.rowHours', { hours: x.hours, platform: platName }))}</div>
                     </div>
                     ${tag}
                   </button>`;
                 })
                 .join('')
-            : `<div class="empty-state"><h3>No matching games in your ${platName} library</h3><p>Try clearing your filter or search query.</p></div>`
+            : `<div class="empty-state"><h3>${esc(t('library.emptyTitle', { platform: platName }))}</h3><p>${esc(t('library.emptyBody'))}</p></div>`
         }
       </div>
     `;
@@ -1236,19 +1293,17 @@
     }
     const linked = connectedPlatforms().map((p) => PLAT_LABELS[p]);
     const listText = linked.length
-      ? `your ${linked.join(', ')} session`
-      : 'your Playtested session';
+      ? t('logout.sessionLinked', { platforms: linked.join(', ') })
+      : t('logout.sessionDefault');
 
     dlg.innerHTML = `<div class="modal-scroll"><div class="confirm-modal-body">
-      <button type="button" class="modal-close-btn" data-close-modal="confirm-modal" aria-label="Close">✕</button>
-      <div class="eyebrow" style="margin-bottom:8px;"><span class="eyebrow-dot"></span>ACCOUNT SESSION</div>
-      <h2>Sign out of Playtested<span class="accent-dot">?</span></h2>
-      <p class="confirm-modal-desc">
-        This will end ${esc(listText)} on this device. All your published verified reviews will stay saved.
-      </p>
+      <button type="button" class="modal-close-btn" data-close-modal="confirm-modal" aria-label="${esc(t('modal.close'))}">✕</button>
+      <div class="eyebrow" style="margin-bottom:8px;"><span class="eyebrow-dot"></span>${esc(t('logout.eyebrow'))}</div>
+      <h2>${t('logout.titleHtml')}</h2>
+      <p class="confirm-modal-desc">${esc(t('logout.desc', { sessionText: listText }))}</p>
       <div class="confirm-modal-actions">
-        <button type="button" class="btn-outline" data-close-modal="confirm-modal" id="confirm-logout-cancel">Cancel</button>
-        <a class="btn-danger" href="/auth/logout" id="confirm-logout-proceed">Sign out</a>
+        <button type="button" class="btn-outline" data-close-modal="confirm-modal" id="confirm-logout-cancel">${esc(t('logout.cancel'))}</button>
+        <a class="btn-danger" href="/auth/logout" id="confirm-logout-proceed">${esc(t('auth.signOut'))}</a>
       </div>
     </div></div>`;
 
@@ -1291,17 +1346,17 @@
             <span>${esc(acc.ps.name)}</span>
           </div>
           <div class="provider-actions">
-            <span class="provider-connected-btn">✓ Connected</span>
-            <button type="button" class="provider-unlink-btn" data-unlink-plat="ps" title="Disconnect PlayStation">Unlink</button>
+            <span class="provider-connected-btn">${esc(t('auth.connected'))}</span>
+            <button type="button" class="provider-unlink-btn" data-unlink-plat="ps" title="${esc(t('auth.disconnectTitle', { platform: 'PlayStation' }))}">${esc(t('auth.unlink'))}</button>
           </div>
         </div>`
       : `<div class="provider-row">
           <span class="provider-logo">${platIcon('ps')}</span>
           <div class="provider-meta">
             <strong>PlayStation Network</strong>
-            <span>Read-only library check · token stays in server RAM only</span>
+            <span>${esc(t('auth.psnSub'))}</span>
           </div>
-          <button type="button" class="provider-connect-btn" data-toggle-psn>${state.psnPanelOpen ? 'Cancel' : 'Connect'}</button>
+          <button type="button" class="provider-connect-btn" data-toggle-psn>${esc(state.psnPanelOpen ? t('auth.cancel') : t('auth.connect'))}</button>
         </div>
         ${
           state.psnPanelOpen
@@ -1309,35 +1364,31 @@
                 <div class="psn-tabs">
                   ${
                     providers.ps.bioChallengeReady
-                      ? `<button type="button" class="psn-tab ${state.psnMode === 'bio' ? 'is-active' : ''}" data-psn-mode="bio">Profile Bio Code</button>`
+                      ? `<button type="button" class="psn-tab ${state.psnMode === 'bio' ? 'is-active' : ''}" data-psn-mode="bio">${esc(t('auth.psnTabBio'))}</button>`
                       : ''
                   }
-                  <button type="button" class="psn-tab ${state.psnMode === 'direct' ? 'is-active' : ''}" data-psn-mode="direct">Official PSN NPSSO</button>
+                  <button type="button" class="psn-tab ${state.psnMode === 'direct' ? 'is-active' : ''}" data-psn-mode="direct">${esc(t('auth.psnTabDirect'))}</button>
                 </div>
                 ${
                   state.psnMode === 'bio' && providers.ps.bioChallengeReady
                     ? `
                       <div style="display:flex;gap:8px;">
-                        <input id="psn-online-id" type="text" placeholder="Your PSN Online ID" value="${esc(state.psnChallenge?.onlineId || '')}" />
-                        <button type="button" class="btn-outline" id="psn-gen-code-btn">Get code</button>
+                        <input id="psn-online-id" type="text" placeholder="${esc(t('auth.psnOnlineIdPlaceholder'))}" value="${esc(state.psnChallenge?.onlineId || '')}" />
+                        <button type="button" class="btn-outline" id="psn-gen-code-btn">${esc(t('auth.getCode'))}</button>
                       </div>
                       ${
                         state.psnChallenge
-                          ? `<div class="psn-code-box">
-                              Put <code>${esc(state.psnChallenge.code)}</code> in your PlayStation <strong>About Me</strong> bio, save it, then click verify below (you can remove it right after).
-                            </div>
-                            <button type="button" class="btn-primary provider-btn" id="psn-verify-bio-btn">${platIcon('ps')} Verify PlayStation Account</button>`
+                          ? `<div class="psn-code-box">${t('auth.psnBioCodeHtml', { code: esc(state.psnChallenge.code) })}</div>
+                            <button type="button" class="btn-primary provider-btn" id="psn-verify-bio-btn">${platIcon('ps')} ${esc(t('auth.psnVerifyAccount'))}</button>`
                           : ''
                       }
                     `
                     : `
                       <p style="margin:0;font-size:12.5px;color:var(--muted);line-height:1.5;">
-                        1. Sign in at <a href="https://www.playstation.com" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">playstation.com</a>.<br>
-                        2. Open <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">Sony's SSO cookie page</a> and copy the <code>npsso</code> value.<br>
-                        3. Paste it below — used in RAM only to read your game list &amp; playtime, never saved to disk.
+                        ${t('auth.psnDirectStepsHtml')}
                       </p>
-                      <input id="psn-npsso-input" type="password" placeholder="Paste 64-character npsso value…" autocomplete="off" />
-                      <button type="button" class="btn-primary provider-btn" id="psn-verify-direct-btn">${platIcon('ps')} Verify PlayStation Library</button>
+                      <input id="psn-npsso-input" type="password" placeholder="${esc(t('auth.psnNpssoPlaceholder'))}" autocomplete="off" />
+                      <button type="button" class="btn-primary provider-btn" id="psn-verify-direct-btn">${platIcon('ps')} ${esc(t('auth.psnVerifyLibrary'))}</button>
                     `
                 }
                 <div id="psn-status" class="form-status" role="status"></div>
@@ -1346,20 +1397,17 @@
         }`;
 
     dlg.innerHTML = `<div class="modal-scroll"><div class="auth-modal-body">
-      <button type="button" class="modal-close-btn" data-close-modal="auth-modal" aria-label="Close">✕</button>
-      <div class="eyebrow" style="margin-bottom:10px;">VERIFIED PLAYER ACCOUNTS</div>
-      <h2>Connect your platforms<span class="accent-dot">.</span></h2>
-      <p class="auth-modal-desc">
-        Link Steam, PlayStation, or Xbox to prove ownership and 2h+ verified playtime.
-        Every verified owner counts equally and platform scores are never mixed.
-      </p>
+      <button type="button" class="modal-close-btn" data-close-modal="auth-modal" aria-label="${esc(t('modal.close'))}">✕</button>
+      <div class="eyebrow" style="margin-bottom:10px;">${esc(t('auth.eyebrow'))}</div>
+      <h2>${t('auth.titleHtml')}</h2>
+      <p class="auth-modal-desc">${esc(t('auth.desc'))}</p>
 
       <div class="trust-callout">
-        <strong>How your account stays safe (100% read-only):</strong>
+        <strong>${esc(t('auth.safeTitle'))}</strong>
         <ul>
-          <li><strong>No passwords ever:</strong> Steam signs in directly on <code>steamcommunity.com</code> via official OpenID; Xbox uses a public Gamertag bio code.</li>
-          <li><strong>No stored auth tokens:</strong> Temporary PSN/OAuth tokens stay in server RAM only and are never written to disk or database.</li>
-          <li><strong>Publicly auditable:</strong> <a href="https://github.com/joaodestro7/playtested/blob/main/lib/platforms.js" target="_blank" rel="noopener noreferrer">Inspect exact auth code (lib/platforms.js) ↗</a></li>
+          <li>${t('auth.safeItem1Html')}</li>
+          <li>${t('auth.safeItem2Html')}</li>
+          <li>${t('auth.safeItem3Html')}</li>
         </ul>
       </div>
 
@@ -1370,15 +1418,15 @@
             <span class="provider-logo">${platIcon('pc')}</span>
             <div class="provider-meta">
               <strong>Steam (PC)</strong>
-              <span>${acc.pc ? esc(acc.pc.name) : 'Official OpenID redirect on steamcommunity.com · no password shared'}</span>
+              <span>${acc.pc ? esc(acc.pc.name) : esc(t('auth.steamSub'))}</span>
             </div>
             ${
               acc.pc
                 ? `<div class="provider-actions">
-                    <span class="provider-connected-btn">✓ Connected</span>
-                    <button type="button" class="provider-unlink-btn" data-unlink-plat="pc" title="Disconnect Steam">Unlink</button>
+                    <span class="provider-connected-btn">${esc(t('auth.connected'))}</span>
+                    <button type="button" class="provider-unlink-btn" data-unlink-plat="pc" title="${esc(t('auth.disconnectTitle', { platform: 'Steam' }))}">${esc(t('auth.unlink'))}</button>
                   </div>`
-                : `<a class="provider-connect-btn" href="/auth/steam">Connect</a>`
+                : `<a class="provider-connect-btn" href="/auth/steam">${esc(t('auth.connect'))}</a>`
             }
           </div>
         </div>
@@ -1394,34 +1442,32 @@
             <span class="provider-logo">${platIcon('xbox')}</span>
             <div class="provider-meta">
               <strong>Xbox Live</strong>
-              <span>${acc.xbox ? esc(acc.xbox.name) : 'Public Gamertag bio code · zero login credentials entered here'}</span>
+              <span>${acc.xbox ? esc(acc.xbox.name) : esc(t('auth.xboxSub'))}</span>
             </div>
             ${
               acc.xbox
                 ? `<div class="provider-actions">
-                    <span class="provider-connected-btn">✓ Connected</span>
-                    <button type="button" class="provider-unlink-btn" data-unlink-plat="xbox" title="Disconnect Xbox">Unlink</button>
+                    <span class="provider-connected-btn">${esc(t('auth.connected'))}</span>
+                    <button type="button" class="provider-unlink-btn" data-unlink-plat="xbox" title="${esc(t('auth.disconnectTitle', { platform: 'Xbox' }))}">${esc(t('auth.unlink'))}</button>
                   </div>`
                 : providers.xbox.configured
-                  ? `<a class="provider-connect-btn" href="/auth/xbox">Connect</a>`
+                  ? `<a class="provider-connect-btn" href="/auth/xbox">${esc(t('auth.connect'))}</a>`
                   : providers.xbox.bioChallengeReady
-                    ? `<button type="button" class="provider-connect-btn" data-toggle-xbox>${state.xboxPanelOpen ? 'Cancel' : 'Connect'}</button>`
-                    : `<a class="provider-connect-btn" href="/auth/xbox">Connect</a>`
+                    ? `<button type="button" class="provider-connect-btn" data-toggle-xbox>${esc(state.xboxPanelOpen ? t('auth.cancel') : t('auth.connect'))}</button>`
+                    : `<a class="provider-connect-btn" href="/auth/xbox">${esc(t('auth.connect'))}</a>`
             }
           </div>
           ${
             !acc.xbox && providers.xbox.bioChallengeReady && !providers.xbox.configured && state.xboxPanelOpen
               ? `<div class="psn-panel">
                   <div style="display:flex;gap:8px;">
-                    <input id="xbox-gamertag-input" type="text" placeholder="Your Xbox Gamertag" value="${esc(state.xboxChallenge?.gamertag || '')}" />
-                    <button type="button" class="btn-outline" id="xbox-gen-code-btn">Get code</button>
+                    <input id="xbox-gamertag-input" type="text" placeholder="${esc(t('auth.xboxGamertagPlaceholder'))}" value="${esc(state.xboxChallenge?.gamertag || '')}" />
+                    <button type="button" class="btn-outline" id="xbox-gen-code-btn">${esc(t('auth.getCode'))}</button>
                   </div>
                   ${
                     state.xboxChallenge
-                      ? `<div class="psn-code-box">
-                          Put <code>${esc(state.xboxChallenge.code)}</code> in your Xbox Profile <strong>Bio</strong>, save it, then click verify below (you can remove it right after).
-                        </div>
-                        <button type="button" class="btn-primary provider-btn" id="xbox-verify-bio-btn">${platIcon('xbox')} Verify Xbox Account</button>`
+                      ? `<div class="psn-code-box">${t('auth.xboxBioCodeHtml', { code: esc(state.xboxChallenge.code) })}</div>
+                        <button type="button" class="btn-primary provider-btn" id="xbox-verify-bio-btn">${platIcon('xbox')} ${esc(t('auth.xboxVerifyAccount'))}</button>`
                       : ''
                   }
                   <div id="xbox-status" class="form-status" role="status"></div>
@@ -1431,16 +1477,8 @@
         </div>
       </div>
 
-      <div class="provider-note">
-        <strong>Publicly Auditable &amp; Read-Only:</strong> Playtested never asks for your passwords and never writes to
-        your gaming accounts. Ensure your library/gaming history privacy is set to <strong>Public</strong> on Steam,
-        PlayStation, or Xbox so ownership and playtime can be verified.
-      </div>
-      <div class="provider-note" style="margin-top:10px;">
-        <strong>Epic Games Store &amp; Nintendo currently unavailable:</strong> Neither Epic Games nor Nintendo offers a
-        public API to verify owned libraries and playtime like Steam’s. We won’t ask users for full-account access
-        codes, so support for both is on hold until safe public APIs are available.
-      </div>
+      <div class="provider-note">${t('auth.notePrivacyHtml')}</div>
+      <div class="provider-note" style="margin-top:10px;">${t('auth.noteUnavailableHtml')}</div>
     </div></div>`;
 
     bindPsnAuthEvents();
@@ -1456,7 +1494,7 @@
       genBtn.onclick = async () => {
         const onlineId = ($('#psn-online-id')?.value || '').trim();
         status.className = 'form-status';
-        status.textContent = 'Generating challenge code…';
+        status.textContent = t('auth.statusGenerating');
         try {
           const res = await fetch('/auth/psn/challenge', {
             method: 'POST',
@@ -1466,7 +1504,7 @@
           const data = await res.json();
           if (!res.ok) {
             status.className = 'form-status err';
-            status.textContent = data.error || 'Could not generate code.';
+            status.textContent = data.error || t('auth.statusGenError');
             return;
           }
           state.psnChallenge = data;
@@ -1482,18 +1520,18 @@
       verifyBioBtn.onclick = async () => {
         verifyBioBtn.disabled = true;
         status.className = 'form-status';
-        status.textContent = 'Checking your PlayStation profile bio…';
+        status.textContent = t('auth.statusPsnCheckingBio');
         try {
           const res = await fetch('/auth/psn/verify', { method: 'POST' });
           const data = await res.json();
           if (!res.ok) {
             status.className = 'form-status err';
-            status.textContent = data.error || 'Verification failed.';
+            status.textContent = data.error || t('auth.statusVerifyFail');
             verifyBioBtn.disabled = false;
             return;
           }
           trackMarketingEvent('connect', 'ps');
-          await refreshSessionAfterAuth('PlayStation Network connected!');
+          await refreshSessionAfterAuth(t('auth.statusPsnConnected'));
         } catch (err) {
           status.className = 'form-status err';
           status.textContent = err.message;
@@ -1507,7 +1545,7 @@
         const npsso = ($('#psn-npsso-input')?.value || '').trim();
         verifyDirectBtn.disabled = true;
         status.className = 'form-status';
-        status.textContent = 'Verifying PlayStation account…';
+        status.textContent = t('auth.statusPsnVerifying');
         try {
           const res = await fetch('/auth/psn/direct', {
             method: 'POST',
@@ -1517,12 +1555,12 @@
           const data = await res.json();
           if (!res.ok) {
             status.className = 'form-status err';
-            status.textContent = data.error || 'Could not verify NPSSO token.';
+            status.textContent = data.error || t('auth.statusPsnNpssoError');
             verifyDirectBtn.disabled = false;
             return;
           }
           trackMarketingEvent('connect', 'ps');
-          await refreshSessionAfterAuth('PlayStation Network connected!');
+          await refreshSessionAfterAuth(t('auth.statusPsnConnected'));
         } catch (err) {
           status.className = 'form-status err';
           status.textContent = err.message;
@@ -1538,7 +1576,7 @@
       xboxGenBtn.onclick = async () => {
         const gamertag = ($('#xbox-gamertag-input')?.value || '').trim();
         xboxStatus.className = 'form-status';
-        xboxStatus.textContent = 'Generating challenge code…';
+        xboxStatus.textContent = t('auth.statusGenerating');
         try {
           const res = await fetch('/auth/xbox/challenge', {
             method: 'POST',
@@ -1548,7 +1586,7 @@
           const data = await res.json();
           if (!res.ok) {
             xboxStatus.className = 'form-status err';
-            xboxStatus.textContent = data.error || 'Could not generate code.';
+            xboxStatus.textContent = data.error || t('auth.statusGenError');
             return;
           }
           state.xboxChallenge = data;
@@ -1563,20 +1601,20 @@
       xboxVerifyBtn.onclick = async () => {
         xboxVerifyBtn.disabled = true;
         xboxStatus.className = 'form-status';
-        xboxStatus.textContent = 'Checking your Xbox profile bio…';
+        xboxStatus.textContent = t('auth.statusXboxCheckingBio');
         try {
           const res = await fetch('/auth/xbox/verify', { method: 'POST' });
           const data = await res.json();
           if (!res.ok) {
             xboxStatus.className = 'form-status err';
-            xboxStatus.textContent = data.error || 'Verification failed.';
+            xboxStatus.textContent = data.error || t('auth.statusVerifyFail');
             xboxVerifyBtn.disabled = false;
             return;
           }
           state.xboxChallenge = null;
           state.xboxPanelOpen = false;
           trackMarketingEvent('connect', 'xbox');
-          await refreshSessionAfterAuth('Xbox Live connected!');
+          await refreshSessionAfterAuth(t('auth.statusXboxConnected'));
         } catch (err) {
           xboxStatus.className = 'form-status err';
           xboxStatus.textContent = err.message;
@@ -1613,7 +1651,7 @@
       state.games.find((g) => String(g.id) === String(gameId)) ||
       (state.stats?.spotlight || []).find((g) => String(g.id) === String(gameId)) ||
       fallbackObj ||
-      { id: String(gameId), name: `Game #${gameId}`, date: null, platforms: ['pc'], scores: {} };
+      { id: String(gameId), name: t('game.fallbackName', { id: gameId }), date: null, platforms: ['pc'], scores: {} };
 
     state.currentModalGame = cached;
     state.currentModalPayload = null;
@@ -1661,7 +1699,7 @@
       renderGameModalShell(game, data);
     } catch (err) {
       const revBox = $('#modal-reviews-list');
-      if (revBox) revBox.innerHTML = `<p class="section-description">Could not load reviews: ${esc(err.message)}</p>`;
+      if (revBox) revBox.innerHTML = `<p class="section-description">${esc(t('game.loadReviewsError', { msg: err.message }))}</p>`;
     }
   }
 
@@ -1673,7 +1711,7 @@
     const btn = $('#modal-refresh-lib-btn');
     if (pill) {
       pill.className = 'eligibility-pill muted';
-      pill.textContent = `Refreshing your ${PLAT_LABELS[plat]} library…`;
+      pill.textContent = t('game.refreshingLib', { platform: PLAT_LABELS[plat] });
     }
     if (btn) btn.disabled = true;
     try {
@@ -1688,10 +1726,10 @@
         // Also refresh client-side library snapshot in background so My Library reflects latest hours
         ensurePlatformLibrary(plat, { forceRefresh: true }).catch(() => {});
         updateModalEligibilityBadge();
-        showToast(`${PLAT_LABELS[plat]} library refreshed!`);
+        showToast(t('library.refreshedToast', { platform: PLAT_LABELS[plat] }));
       }
     } catch {
-      showToast('Could not refresh library right now.');
+      showToast(t('game.refreshLibError'));
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -1719,23 +1757,24 @@
       return;
     }
 
-    const refreshHtml = ` <button type="button" class="inline-refresh-link" id="modal-refresh-lib-btn">↻ Refresh ${esc(PLAT_LABELS[p])} library</button>`;
+    const platName = PLAT_LABELS[p];
+    const refreshHtml = ` <button type="button" class="inline-refresh-link" id="modal-refresh-lib-btn">${esc(t('game.refreshLibBtn', { platform: platName }))}</button>`;
 
     if (info.released === false) {
       pill.className = 'eligibility-pill err';
-      pill.textContent = `Not released on ${PLAT_LABELS[p]}`;
+      pill.textContent = t('game.notReleasedOn', { platform: platName });
       state.modalEligibilityAllowed = false;
     } else if (!info.connected) {
       pill.className = 'eligibility-pill muted';
-      pill.textContent = `Connect ${PLAT_LABELS[p]} to rate`;
+      pill.textContent = t('game.eligConnect', { platform: platName });
       state.modalEligibilityAllowed = false;
     } else if (info.legacy) {
       pill.className = 'eligibility-pill classic';
-      pill.textContent = `✦ Classic Era (${info.legacyEra || 'Legacy'}) · Account verified`;
+      pill.textContent = t('game.classicPillFull', { era: info.legacyEra || t('reviews.classicFallback') });
       state.modalEligibilityAllowed = true;
     } else if (info.error) {
       pill.className = 'eligibility-pill warn';
-      pill.textContent = 'Library check unavailable';
+      pill.textContent = t('game.eligUnavailable');
       if (statusEl) {
         statusEl.className = 'form-status err';
         statusEl.innerHTML = `${esc(info.error)}${refreshHtml}`;
@@ -1743,25 +1782,28 @@
       state.modalEligibilityAllowed = false;
     } else if (!info.owned) {
       pill.className = 'eligibility-pill err';
-      pill.textContent = `Not in your ${PLAT_LABELS[p]} library`;
+      pill.textContent = t('game.eligNotOwned', { platform: platName });
       if (statusEl) {
         statusEl.className = 'form-status err';
-        const msg = `You must own this game on ${PLAT_LABELS[p]} (with ${info.minHours}h+ played) to review it.`;
+        const msg = t('game.eligNotOwnedMsg', { platform: platName, hours: info.minHours });
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       state.modalEligibilityAllowed = false;
     } else if (!info.eligible) {
       pill.className = 'eligibility-pill warn';
-      pill.textContent = `${info.hours}h played · Need ${info.minHours}h+`;
+      pill.textContent = t('game.eligNeedMore', { played: info.hours, min: info.minHours });
       if (statusEl) {
         statusEl.className = 'form-status err';
-        const msg = `Play at least ${Math.max(0.1, info.minHours - info.hours).toFixed(1)}h more on ${PLAT_LABELS[p]} to unlock reviewing.`;
+        const msg = t('game.eligNeedMoreMsg', {
+          more: Math.max(0.1, info.minHours - info.hours).toFixed(1),
+          platform: platName,
+        });
         statusEl.innerHTML = `${esc(msg)}${refreshHtml}`;
       }
       state.modalEligibilityAllowed = false;
     } else {
       pill.className = 'eligibility-pill ok';
-      pill.textContent = `✓ Verified ${PLAT_LABELS[p]} owner · ${info.hours}h played`;
+      pill.textContent = t('game.eligVerified', { platform: platName, hours: info.hours });
       if (statusEl && statusEl.classList.contains('err')) {
         statusEl.className = 'form-status';
         statusEl.textContent = '';
@@ -1771,8 +1813,9 @@
     syncReviewSubmitState();
   }
 
-  function renderGameModalShell(g, payload = null) {
+  function renderGameModalShell(g, payload = null, preserveDraft = false) {
     const dlg = $('#game-modal');
+    const prevDraftText = preserveDraft ? $('#review-text')?.value : null;
     const scores = payload?.scores || g.scores || { pc: null, ps: null, xbox: null };
     const stats = payload?.stats || { totalReviews: 0, spike: false };
     const gamePlats = (g.platforms && g.platforms.length) ? g.platforms : ['pc'];
@@ -1782,22 +1825,25 @@
     const myReview = payload?.myReviews?.[activePlat] || null;
     const linked = connectedPlatforms();
     const isPlatConnected = linked.includes(activePlat);
-    const year = g.date ? g.date.slice(0, 4) : 'Unknown';
+    const year = g.date ? g.date.slice(0, 4) : t('game.unknownYear');
     const existingBreakdown = myReview && myReview.breakdown ? myReview.breakdown : null;
-    state.modalDraftBreakdown = {
-      fun: Number.isInteger(existingBreakdown?.fun) ? existingBreakdown.fun : null,
-      performance: Number.isInteger(existingBreakdown?.performance) ? existingBreakdown.performance : null,
-      gameplay: Number.isInteger(existingBreakdown?.gameplay) ? existingBreakdown.gameplay : null,
-      visuals: Number.isInteger(existingBreakdown?.visuals) ? existingBreakdown.visuals : null,
-    };
+    if (!preserveDraft || !state.modalDraftBreakdown) {
+      state.modalDraftBreakdown = {
+        fun: Number.isInteger(existingBreakdown?.fun) ? existingBreakdown.fun : null,
+        performance: Number.isInteger(existingBreakdown?.performance) ? existingBreakdown.performance : null,
+        gameplay: Number.isInteger(existingBreakdown?.gameplay) ? existingBreakdown.gameplay : null,
+        visuals: Number.isInteger(existingBreakdown?.visuals) ? existingBreakdown.visuals : null,
+      };
+    }
     state.modalEligibilityAllowed = Boolean(legacyInfo.legacy);
     const initialCalculated = calcWeightedBreakdown(state.modalDraftBreakdown);
     const initialAnsweredCount = REVIEW_QUESTIONS.filter((q) => Number.isInteger(state.modalDraftBreakdown[q.key])).length;
-    const initialText = myReview ? myReview.text : '';
+    const initialText = prevDraftText !== null && prevDraftText !== undefined ? prevDraftText : myReview ? myReview.text : '';
     const backdropUrl = g.hdr || g.cover || '';
+    const activePlatName = PLAT_LABELS[activePlat];
 
     dlg.innerHTML = `<div class="modal-scroll">
-      <button type="button" class="modal-close-btn" data-close-modal="game-modal" aria-label="Close">✕</button>
+      <button type="button" class="modal-close-btn" data-close-modal="game-modal" aria-label="${esc(t('modal.close'))}">✕</button>
       <div class="game-modal-hero">
         ${backdropUrl ? `<div class="game-modal-backdrop-img" style="background-image:url('${esc(backdropUrl)}')"></div>` : ''}
         <div class="game-modal-head">
@@ -1810,10 +1856,10 @@
             </div>
             <h2>${esc(g.name)}</h2>
             <div class="meta-list">
-              ${g.developer ? `<span>Developer: <strong>${esc(g.developer)}</strong></span>` : ''}
-              ${g.publisher ? `<span>Publisher: <strong>${esc(g.publisher)}</strong></span>` : ''}
-              ${g.generations && g.generations.length ? `<span>Systems: <strong>${esc(g.generations.join(' · '))}</strong></span>` : ''}
-              <span>Released: <strong>${esc(year)}</strong>${g.trend >= 1000 ? ` · <strong>${formatCompact(g.trend)}</strong> peak players this week` : ''}</span>
+              ${g.developer ? `<span>${esc(t('game.developer'))} <strong>${esc(g.developer)}</strong></span>` : ''}
+              ${g.publisher ? `<span>${esc(t('game.publisher'))} <strong>${esc(g.publisher)}</strong></span>` : ''}
+              ${g.generations && g.generations.length ? `<span>${esc(t('game.systems'))} <strong>${esc(g.generations.join(' · '))}</strong></span>` : ''}
+              <span>${esc(t('game.released'))} <strong>${esc(year)}</strong>${g.trend >= 1000 ? ` · <strong>${formatCompact(g.trend)}</strong> ${esc(t('game.peakPlayers'))}` : ''}</span>
             </div>
           </div>
         </div>
@@ -1826,20 +1872,21 @@
               const releasedHere = gamePlats.includes(p);
               const isActiveCard = releasedHere && activePlat === p;
               const s = scores[p];
+              const revWord = s && s.n === 1 ? t('catalog.reviewOne') : t('catalog.reviewMany');
               const subText = !releasedHere
-                ? `Not released on ${PLAT_LABELS[p]}`
+                ? t('game.notReleasedOn', { platform: PLAT_LABELS[p] })
                 : s
                   ? s.legacyOnly
-                    ? `${s.n} ${s.n === 1 ? 'review' : 'reviews'} · Classic era`
-                    : `${s.n} ${s.n === 1 ? 'review' : 'reviews'}${s.avgHours ? ` · avg ${s.avgHours}h` : ''}`
-                  : 'No verified reviews';
+                    ? `${s.n} ${revWord} · ${t('game.classicEraShort')}`
+                    : `${s.n} ${revWord}${s.avgHours ? ` · ${t('game.avgHoursShort', { hours: s.avgHours })}` : ''}`
+                  : t('game.noVerifiedReviews');
               return `<div class="modal-score-card ${scoreClass(s && s.score)} ${releasedHere ? 'is-selectable' : 'is-unreleased'} ${isActiveCard ? 'is-active-plat' : ''}" ${releasedHere ? `data-rate-plat="${p}" role="button" tabindex="0" aria-pressed="${isActiveCard ? 'true' : 'false'}"` : ''}>
                 <div class="modal-score-top">
                   <span>${PLAT_LABELS[p]}</span>
                   ${platIcon(p)}
                 </div>
                 <div class="modal-score-val">${s ? s.score : '–'}</div>
-                <div class="modal-score-sub">${subText}</div>
+                <div class="modal-score-sub">${esc(subText)}</div>
               </div>`;
             })
             .join('')}
@@ -1855,15 +1902,19 @@
           const loPct = hasReviews ? Math.max(0, 100 - hiPct - midPct) : 0;
           const hoursMeta = hasReviews
             ? activeSc.legacyOnly
-              ? 'Classic Era · account verified'
-              : `Median ${activeSc.medianHours || activeSc.avgHours || 0}h · Avg ${activeSc.avgHours || 0}h played`
-            : 'No verified ratings yet';
+              ? t('game.classicVerified')
+              : t('game.medianAvgHours', {
+                  median: activeSc.medianHours || activeSc.avgHours || 0,
+                  avg: activeSc.avgHours || 0,
+                })
+            : t('game.noRatingsYet');
+          const revWord = activeSc && activeSc.n === 1 ? t('catalog.reviewOne') : t('catalog.reviewMany');
           return `<div class="score-breakdown-box">
             <div class="score-breakdown-head">
-              <strong>${PLAT_LABELS[activePlat]} Score Breakdown${hasReviews ? ` (${activeSc.n} ${activeSc.n === 1 ? 'review' : 'reviews'})` : ''}</strong>
-              <span>Total avg: <b class="breakdown-total-inline ${scoreClass(activeSc && activeSc.score)}">${hasReviews ? `${activeSc.score}/100` : '–'}</b> · ${hoursMeta}</span>
+              <strong>${esc(t('game.scoreBreakdown', { platform: activePlatName }))}${hasReviews ? ` (${activeSc.n} ${esc(revWord)})` : ''}</strong>
+              <span>${esc(t('game.totalAvg'))} <b class="breakdown-total-inline ${scoreClass(activeSc && activeSc.score)}">${hasReviews ? `${activeSc.score}/100` : '–'}</b> · ${esc(hoursMeta)}</span>
             </div>
-            <div class="criteria-avg-grid" aria-label="Average scores across all 4 metrics for ${PLAT_LABELS[activePlat]}">
+            <div class="criteria-avg-grid" aria-label="${esc(t('game.criteriaGridAria', { platform: activePlatName }))}">
               ${REVIEW_QUESTIONS.map((q) => {
                 const rawVal = criteriaAvg ? criteriaAvg[q.key] : null;
                 const hasVal = rawVal !== null && rawVal !== undefined && Number.isFinite(Number(rawVal));
@@ -1872,7 +1923,7 @@
                 const tier = !hasVal ? 'na' : avg >= 7.5 ? 'hi' : avg >= 5 ? 'mid' : 'lo';
                 return `<div class="criteria-avg-item">
                   <div class="criteria-avg-top">
-                    <span>${esc(q.shortLabel)}</span>
+                    <span>${esc(qShort(q))}</span>
                     <strong class="${tier}">${hasVal ? avg.toFixed(1) : '–'}<small>/10</small></strong>
                   </div>
                   <div class="criteria-avg-bar"><span class="${tier}" style="width:${pct}%"></span></div>
@@ -1881,31 +1932,27 @@
             </div>
             ${
               hasReviews
-                ? `<div class="score-dist-bar" aria-label="Score distribution for ${PLAT_LABELS[activePlat]}">
+                ? `<div class="score-dist-bar" aria-label="${esc(t('game.distAria', { platform: activePlatName }))}">
                     ${d.hi ? `<span class="score-dist-seg hi" style="width:${hiPct}%"></span>` : ''}
                     ${d.mid ? `<span class="score-dist-seg mid" style="width:${midPct}%"></span>` : ''}
                     ${d.lo ? `<span class="score-dist-seg lo" style="width:${loPct}%"></span>` : ''}
                   </div>
                   <div class="score-breakdown-legend">
-                    <span><i class="legend-swatch hi"></i>Positive (75–100): ${d.hi}</span>
-                    <span><i class="legend-swatch mid"></i>Mixed (50–74): ${d.mid}</span>
-                    <span><i class="legend-swatch lo"></i>Negative (0–49): ${d.lo}</span>
+                    <span><i class="legend-swatch hi"></i>${esc(t('game.distPositive', { n: d.hi }))}</span>
+                    <span><i class="legend-swatch mid"></i>${esc(t('game.distMixed', { n: d.mid }))}</span>
+                    <span><i class="legend-swatch lo"></i>${esc(t('game.distNegative', { n: d.lo }))}</span>
                   </div>`
                 : ''
             }
           </div>`;
         })()}
 
-        ${
-          stats.spike
-            ? `<div class="spike-notice"><strong>High recent activity:</strong> Verified owners are actively reviewing this game right now. All platform scores remain strictly equal-weight and isolated per platform.</div>`
-            : ''
-        }
+        ${stats.spike ? `<div class="spike-notice">${t('game.spikeHtml')}</div>` : ''}
 
         <div class="rate-section" id="modal-rate-section">
           ${
             gamePlats.length > 1
-              ? `<div class="rate-platform-bar" role="group" aria-label="Choose platform to review">
+              ? `<div class="rate-platform-bar" role="group" aria-label="${esc(t('game.choosePlatAria'))}">
                   ${gamePlats
                     .map(
                       (p) => `<button type="button" class="rate-plat-btn ${activePlat === p ? 'is-active' : ''}" data-rate-plat="${p}">
@@ -1920,22 +1967,22 @@
             isPlatConnected
               ? `
             <div class="rate-section-head">
-              <h3>${myReview ? `Edit your ${PLAT_LABELS[activePlat]} review` : `Rate on ${PLAT_LABELS[activePlat]}`}</h3>
-              <span id="modal-eligibility" class="eligibility-pill ${legacyInfo.legacy ? 'classic' : 'muted'}">${
+              <h3>${esc(myReview ? t('game.editReviewTitle', { platform: activePlatName }) : t('game.rateOnTitle', { platform: activePlatName }))}</h3>
+              <span id="modal-eligibility" class="eligibility-pill ${legacyInfo.legacy ? 'classic' : 'muted'}">${esc(
                 legacyInfo.legacy
-                  ? `✦ Classic Era (${esc(legacyInfo.era || 'Legacy')}) · Account verified`
-                  : `Checking your ${PLAT_LABELS[activePlat]} library…`
-              }</span>
+                  ? t('game.classicPillFull', { era: legacyInfo.era || t('reviews.classicFallback') })
+                  : t('game.checkingLib', { platform: activePlatName })
+              )}</span>
             </div>
             ${
               legacyInfo.legacy
-                ? `<div class="legacy-banner"><strong>Classic Era Review:</strong> ${esc(legacyInfo.reason)}. Ownership &amp; playtime checks are waived for this classic, while your verified ${PLAT_LABELS[activePlat]} login is still required (one review per account).</div>`
-                : `<p class="rate-isolation-note">Allocates strictly to the <strong>${PLAT_LABELS[activePlat]}</strong> score — never mixed with other platforms.</p>`
+                ? `<div class="legacy-banner">${t('game.legacyBannerHtml', { reason: esc(legacyInfo.reason), platform: esc(activePlatName) })}</div>`
+                : `<p class="rate-isolation-note">${t('game.isolationNoteHtml', { platform: esc(activePlatName) })}</p>`
             }
             <form id="review-form" class="review-form" novalidate>
               ${
                 myReview && !existingBreakdown
-                  ? `<p class="legacy-score-migrate-note">Your existing review has a score of <strong>${myReview.score}</strong>. Answer all 4 mandatory questions below to update it.</p>`
+                  ? `<p class="legacy-score-migrate-note">${t('game.legacyMigrateHtml', { score: myReview.score })}</p>`
                   : ''
               }
               <div class="score-questions-list" id="score-questions-list">
@@ -1943,19 +1990,20 @@
                   const cur = state.modalDraftBreakdown[q.key];
                   const hasVal = Number.isInteger(cur);
                   const valText = hasVal ? `${cur} / 10` : '0–10';
+                  const lbl = qLabel(q);
                   return `<fieldset class="score-question-card ${hasVal ? 'is-answered' : ''}" data-q-key="${q.key}">
                     <div class="score-question-head">
                       <div class="score-question-title-wrap">
-                        <span class="score-question-num">Q${q.num}</span>
-                        <legend class="score-question-label">${esc(q.label)} <span class="score-question-req" aria-hidden="true">*</span></legend>
+                        <span class="score-question-num">${esc(t('game.qPrefix', { num: q.num }))}</span>
+                        <legend class="score-question-label">${esc(lbl)} <span class="score-question-req" aria-hidden="true">*</span></legend>
                         <span class="q-tip-wrap">
-                          <button type="button" class="q-tip-btn" aria-label="Tooltip for ${esc(q.label)}" aria-expanded="false">?</button>
-                          <span class="q-tip-pop" role="tooltip">${esc(q.tooltip)}</span>
+                          <button type="button" class="q-tip-btn" aria-label="${esc(t('game.qTipAria', { label: lbl }))}" aria-expanded="false">?</button>
+                          <span class="q-tip-pop" role="tooltip">${esc(qTip(q))}</span>
                         </span>
                       </div>
                       <span class="score-question-pts" data-q-pts="${q.key}">${valText}</span>
                     </div>
-                    <div class="score-scale-row" role="radiogroup" aria-label="${esc(q.label)} (0 to 10)">
+                    <div class="score-scale-row" role="radiogroup" aria-label="${esc(t('game.qScaleAria', { label: lbl }))}">
                       ${Array.from({ length: 11 }, (_, n) => {
                         const selected = cur === n;
                         return `<button type="button" class="score-scale-btn ${selected ? 'is-selected' : ''}" role="radio" aria-checked="${selected ? 'true' : 'false'}" data-q-key="${q.key}" data-q-val="${n}">${n}</button>`;
@@ -1967,30 +2015,30 @@
 
               <div class="weighted-total-bar" id="weighted-total-bar">
                 <div class="weighted-total-meta">
-                  <span class="weighted-total-label">Final Score</span>
-                  <span class="weighted-total-sub" id="weighted-total-sub">${
+                  <span class="weighted-total-label">${esc(t('game.finalScore'))}</span>
+                  <span class="weighted-total-sub" id="weighted-total-sub">${esc(
                     initialCalculated !== null
-                      ? 'Calculated from your 4 answers'
-                      : `Answer all 4 mandatory questions (${initialAnsweredCount}/4 answered)`
-                  }</span>
+                      ? t('game.calculatedSub')
+                      : t('game.incompleteSub', { n: initialAnsweredCount })
+                  )}</span>
                 </div>
                 <div class="weighted-total-readout">
                   <span id="score-total-num" class="weighted-total-num ${scoreClass(initialCalculated)}">${
                     initialCalculated !== null ? initialCalculated : '—'
                   }</span>
                   <span class="weighted-total-denom">/ 100</span>
-                  <span id="score-verdict" class="verdict-chip ${initialCalculated !== null ? scoreClass(initialCalculated) : 'pending'}">${
-                    initialCalculated !== null ? verdictFor(initialCalculated) : 'Incomplete'
-                  }</span>
+                  <span id="score-verdict" class="verdict-chip ${initialCalculated !== null ? scoreClass(initialCalculated) : 'pending'}">${esc(
+                    initialCalculated !== null ? verdictFor(initialCalculated) : t('game.incomplete')
+                  )}</span>
                 </div>
               </div>
 
-              <textarea id="review-text" class="review-textarea" maxlength="2000" placeholder="Share your honest experience playing on ${PLAT_LABELS[activePlat]} (optional)…">${esc(initialText)}</textarea>
+              <textarea id="review-text" class="review-textarea" maxlength="2000" placeholder="${esc(t('game.textareaPlaceholder', { platform: activePlatName }))}">${esc(initialText)}</textarea>
               <div class="review-form-actions">
                 <span class="char-count"><span id="review-chars">${initialText.length}</span> / 2000</span>
                 <div style="display:flex;gap:10px;align-items:center;">
-                  ${myReview ? '<button type="button" class="btn-danger" id="delete-review-btn">Delete review</button>' : ''}
-                  <button type="submit" class="btn-primary" id="submit-review-btn" ${initialCalculated === null || !state.modalEligibilityAllowed ? 'disabled' : ''}>${myReview ? `Update ${PLAT_LABELS[activePlat]} review` : `Publish ${PLAT_LABELS[activePlat]} review`}</button>
+                  ${myReview ? `<button type="button" class="btn-danger" id="delete-review-btn">${esc(t('game.deleteReview'))}</button>` : ''}
+                  <button type="submit" class="btn-primary" id="submit-review-btn" ${initialCalculated === null || !state.modalEligibilityAllowed ? 'disabled' : ''}>${esc(myReview ? t('game.updateReview', { platform: activePlatName }) : t('game.publishReview', { platform: activePlatName }))}</button>
                 </div>
               </div>
               <div id="review-form-status" class="form-status" role="status"></div>
@@ -1999,21 +2047,28 @@
               : `
             <div class="rate-signin-box">
               <div>
-                <h3 style="margin-bottom:6px;">${
+                <h3 style="margin-bottom:6px;">${esc(
                   linked.length
-                    ? `${esc(g.name)} requires a ${PLAT_LABELS[activePlat]} account`
-                    : `Have you played ${esc(g.name)}?`
-                }</h3>
-                <p>${
+                    ? t('game.requiresAccount', { name: g.name, platform: activePlatName })
+                    : t('game.haveYouPlayed', { name: g.name })
+                )}</h3>
+                <p>${esc(
                   linked.length
-                    ? `You can only review games on platforms where they were released. Connect your ${PLAT_LABELS[activePlat]} account to rate this ${legacyInfo.legacy ? `${legacyInfo.era} classic (library check waived)` : `${PLAT_LABELS[activePlat]} title`}.`
+                    ? t('game.connectLinkedPrompt', {
+                        platform: activePlatName,
+                        target: legacyInfo.legacy
+                          ? t('game.targetClassic', { era: legacyInfo.era })
+                          : t('game.targetTitle', { platform: activePlatName }),
+                      })
                     : legacyInfo.legacy
-                      ? `Sign in with ${PLAT_LABELS[activePlat]} to rate this ${legacyInfo.era} classic. Ownership & playtime checks are waived for pre-API classics, while platform login is still required.`
-                      : `Connect ${gamePlats.map((p) => PLAT_LABELS[p]).join(' or ')} to verify ownership and 2h+ playtime. Each platform score is calculated separately.`
-                }</p>
+                      ? t('game.connectGuestClassic', { platform: activePlatName, era: legacyInfo.era })
+                      : t('game.connectGuestNormal', {
+                          platforms: gamePlats.map((p) => PLAT_LABELS[p]).join(` ${t('game.orWord')} `),
+                        })
+                )}</p>
               </div>
               <button type="button" class="btn-primary" data-action="${activePlat === 'ps' ? 'open-psn-connect' : activePlat === 'xbox' ? 'open-xbox-connect' : 'open-auth'}">
-                ${platIcon(activePlat)} Connect ${PLAT_LABELS[activePlat]}
+                ${platIcon(activePlat)} ${esc(t('game.connectPlatformBtn', { platform: activePlatName }))}
               </button>
             </div>
           `
@@ -2021,17 +2076,17 @@
         </div>
 
         <div class="modal-reviews-head">
-          <h3>Verified player reviews (${payload ? payload.reviews.length : '…'})</h3>
-          <select id="modal-review-sort" class="size-select" style="height:34px;font-size:12.5px;" aria-label="Sort game reviews">
-            <option value="recent">Newest first</option>
-            <option value="hours">Most playtime</option>
-            <option value="high">Highest score</option>
-            <option value="low">Lowest score</option>
+          <h3>${esc(t('game.modalReviewsTitle', { count: payload ? payload.reviews.length : '…' }))}</h3>
+          <select id="modal-review-sort" class="size-select" style="height:34px;font-size:12.5px;" aria-label="${esc(t('game.sortGameReviewsAria'))}">
+            <option value="recent">${esc(t('game.sortNewestFirst'))}</option>
+            <option value="hours">${esc(t('reviews.sort.hours'))}</option>
+            <option value="high">${esc(t('reviews.sort.high'))}</option>
+            <option value="low">${esc(t('reviews.sort.low'))}</option>
           </select>
         </div>
 
         <div id="modal-reviews-list">
-          ${payload ? renderModalReviewsHtml(payload.reviews) : '<p class="section-description">Loading reviews…</p>'}
+          ${payload ? renderModalReviewsHtml(payload.reviews) : `<p class="section-description">${esc(t('game.loadingReviews'))}</p>`}
         </div>
       </div>
     </div>`;
@@ -2042,7 +2097,7 @@
 
   function renderModalReviewsHtml(reviews) {
     if (!reviews.length) {
-      return '<p class="section-description">No verified reviews yet. Be the first owner with 2h+ played to score it.</p>';
+      return `<p class="section-description">${esc(t('game.noReviewsInModal'))}</p>`;
     }
     const sorted = [...reviews];
     if (state.modalReviewSort === 'hours') {
@@ -2056,24 +2111,39 @@
     }
 
     return sorted
-      .map(
-        (r) => `<article class="review-item">
+      .map((r) => {
+        const platLabel = PLAT_LABELS[r.platform] || r.platform;
+        return `<article class="review-item">
           <div class="review-item-head">
             ${r.avatar ? `<img src="${esc(r.avatar)}" referrerpolicy="no-referrer" alt="" />` : ''}
             <span class="review-author-name">${esc(r.name)}</span>
-            ${r.isMine ? '<span class="verified-pill">You</span>' : r.legacy ? '<span class="classic-pill">✦ Classic Era</span>' : '<span class="verified-pill">✓ Verified</span>'}
+            ${
+              r.isMine
+                ? `<span class="verified-pill">${esc(t('reviews.youPill'))}</span>`
+                : r.legacy
+                  ? `<span class="classic-pill">${esc(t('reviews.classicPill'))}</span>`
+                  : `<span class="verified-pill">${esc(t('reviews.verifiedPill'))}</span>`
+            }
             <span class="review-playtime">${
               r.legacy
-                ? `${esc(r.legacyEra || 'Classic')} account-verified on ${platIcon(r.platform)} ${PLAT_LABELS[r.platform] || r.platform}`
-                : `${r.hours}h played on ${platIcon(r.platform)} ${PLAT_LABELS[r.platform] || r.platform}`
+                ? t('game.reviewLegacyMeta', {
+                    era: esc(r.legacyEra || t('reviews.classicFallback')),
+                    icon: platIcon(r.platform),
+                    platform: esc(platLabel),
+                  })
+                : t('game.reviewPlayedMeta', {
+                    hours: r.hours,
+                    icon: platIcon(r.platform),
+                    platform: esc(platLabel),
+                  })
             }</span>
             <span class="review-score-pill ${scoreClass(r.score)}">${r.score}</span>
           </div>
           ${renderReviewBreakdownPills(r.breakdown)}
           ${r.text ? `<p class="review-item-body">${esc(r.text)}</p>` : ''}
-          <div class="review-item-date">${formatDate(r.ts)}${r.edited ? ' · edited' : ''}</div>
-        </article>`
-      )
+          <div class="review-item-date">${esc(formatDate(r.ts))}${r.edited ? esc(t('game.editedSuffix')) : ''}</div>
+        </article>`;
+      })
       .join('');
   }
 
@@ -2124,15 +2194,15 @@
       if (totalSub) {
         totalSub.textContent =
           total !== null
-            ? 'Calculated from your 4 answers'
-            : `Answer all 4 mandatory questions (${answeredCount}/4 answered)`;
+            ? t('game.calculatedSub')
+            : t('game.incompleteSub', { n: answeredCount });
       }
       if (verdict) {
         if (total !== null) {
           verdict.textContent = verdictFor(total);
           verdict.className = `verdict-chip ${scoreClass(total)}`;
         } else {
-          verdict.textContent = 'Incomplete';
+          verdict.textContent = t('game.incomplete');
           verdict.className = 'verdict-chip pending';
         }
       }
@@ -2202,12 +2272,12 @@
             }
           }
           status.className = 'form-status err';
-          status.textContent = 'Please answer all 4 mandatory questions (0–10) before publishing.';
+          status.textContent = t('game.answerAllErr');
           return;
         }
 
         status.className = 'form-status';
-        status.textContent = `Verifying your ${PLAT_LABELS[plat]} library & playtime…`;
+        status.textContent = t('game.verifyingSubmit', { platform: PLAT_LABELS[plat] });
         submitBtn.disabled = true;
 
         try {
@@ -2224,7 +2294,7 @@
           const data = await res.json();
           if (!res.ok) {
             status.className = 'form-status err';
-            status.textContent = data.error || 'Could not save review.';
+            status.textContent = data.error || t('game.saveError');
             syncReviewSubmitState();
             return;
           }
@@ -2233,9 +2303,10 @@
           }
           const finalScore = Number.isFinite(Number(data.score)) ? Number(data.score) : calculated;
           showToast(
-            data.edited
-              ? `${PLAT_LABELS[plat]} verified review updated! (${finalScore}/100)`
-              : `${PLAT_LABELS[plat]} verified review published! (${finalScore}/100)`
+            t(data.edited ? 'game.updatedToast' : 'game.publishedToast', {
+              platform: PLAT_LABELS[plat],
+              score: finalScore,
+            })
           );
           syncLocalLibraryReviewState(data.gameId || game.id, plat, finalScore);
           await openGameModal(data.gameId || game.id, game, plat);
@@ -2247,7 +2318,7 @@
           }
         } catch (err) {
           status.className = 'form-status err';
-          status.textContent = err.message || 'Network error.';
+          status.textContent = err.message || t('game.networkError');
           syncReviewSubmitState();
         }
       };
@@ -2262,7 +2333,7 @@
             method: 'DELETE',
           });
           if (res.ok) {
-            showToast(`Your ${PLAT_LABELS[plat]} review was deleted.`);
+            showToast(t('game.deletedToast', { platform: PLAT_LABELS[plat] }));
             syncLocalLibraryReviewState(game.id, plat, null);
             await openGameModal(game.id, game, plat);
             loadCatalog();
@@ -2411,6 +2482,29 @@
     $('#sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
 
     document.addEventListener('click', async (e) => {
+      const langTrigger = e.target.closest('[data-action="toggle-lang-menu"]');
+      if (langTrigger) {
+        const wrap = langTrigger.closest('[data-lang-switch]');
+        const menu = wrap?.querySelector('.lang-menu');
+        const willOpen = !wrap?.classList.contains('is-open');
+        closeLangMenus();
+        if (wrap && menu && willOpen) {
+          wrap.classList.add('is-open');
+          langTrigger.setAttribute('aria-expanded', 'true');
+          menu.hidden = false;
+        }
+        return;
+      }
+      const langOption = e.target.closest('[data-set-lang]');
+      if (langOption) {
+        const code = langOption.dataset.setLang;
+        closeLangMenus();
+        if (I18N && code) I18N.setLang(code);
+        return;
+      }
+      if (!e.target.closest('[data-lang-switch]')) {
+        closeLangMenus();
+      }
       if (e.target.closest('[data-action="toggle-theme"]')) {
         toggleTheme();
         return;
@@ -2450,7 +2544,7 @@
       const coffeeLink = e.target.closest('#coffee-donate-btn');
       if (coffeeLink && coffeeLink.dataset.configured !== '1') {
         e.preventDefault();
-        showToast('PayPal donation link is not configured yet.');
+        showToast(t('footer.coffeeUnconfigured'));
         return;
       }
       const psnModeBtn = e.target.closest('[data-psn-mode]');
@@ -2464,7 +2558,7 @@
         const p = unlinkBtn.dataset.unlinkPlat;
         await fetch(`/auth/unlink/${encodeURIComponent(p)}`, { method: 'POST' });
         clearSessionLibraryCache(p);
-        await refreshSessionAfterAuth(`${PLAT_LABELS[p]} account unlinked.`);
+        await refreshSessionAfterAuth(t('auth.unlinkedToast', { platform: PLAT_LABELS[p] }));
         return;
       }
       if (e.target.closest('#confirm-logout-proceed')) {
@@ -2599,18 +2693,51 @@
       }
       if (e.key === 'Escape') {
         setSidebarOpen(false);
+        closeLangMenus();
       }
     });
 
     window.addEventListener('offline', () => {
-      showToast('You appear to be offline. Reconnect to load updates or post reviews.');
+      showToast(t('toast.offline'));
     });
     window.addEventListener('online', () => {
-      showToast('Back online!');
+      showToast(t('toast.online'));
     });
   }
 
+  function handleLanguageChange() {
+    renderUserControls();
+    if (typeof state.refreshHeroMeta === 'function') state.refreshHeroMeta();
+    renderStatsNumbers();
+    if (state.stats) renderSpotlight(state.stats.spotlight || []);
+    updateActiveFilterPills();
+    if (state.lastCatalogData) renderCatalogData(state.lastCatalogData);
+    if (state.view === 'reviews' && state.lastReviewsFeedData) {
+      renderReviewsFeedData(state.lastReviewsFeedData);
+    }
+    if (state.view === 'library') {
+      if (connectedPlatforms().length && state.library) {
+        renderLibraryList();
+      } else {
+        loadLibraryView();
+      }
+    }
+    if ($('#game-modal')?.open && state.currentModalGame) {
+      renderGameModalShell(state.currentModalGame, state.currentModalPayload, true);
+    }
+    if ($('#auth-modal')?.open) {
+      renderAuthModal();
+    }
+    if ($('#confirm-modal')?.open) {
+      openLogoutConfirmModal();
+    }
+  }
+
   async function boot() {
+    if (I18N) {
+      I18N.applyDomTranslations(document);
+      I18N.onChange(handleLanguageChange);
+    }
     initEvents();
     initHeroShowcase();
 
@@ -2619,14 +2746,14 @@
     const errCode = params.get('e');
     const connected = params.get('connected');
     const hasUtm = params.has('utm_source') || params.has('utm_campaign') || params.has('utm_medium');
-    if (errCode === 'login') showToast('Steam sign-in failed. Please try again.');
-    if (errCode === 'xbox_login') showToast('Xbox sign-in failed. Please try again.');
+    if (errCode === 'login') showToast(t('toast.steamLoginFail'));
+    if (errCode === 'xbox_login') showToast(t('toast.xboxLoginFail'));
     if (errCode === 'xbox_config') {
-      showToast('Xbox Live connection is currently unavailable on this server. Please try again later.');
+      showToast(t('toast.xboxConfigUnavailable'));
     }
     if (connected && PLAT_LABELS[connected]) {
       trackMarketingEvent('connect', connected);
-      showToast(`${PLAT_LABELS[connected]} connected! You can now publish verified reviews.`);
+      showToast(t('toast.connected', { platform: PLAT_LABELS[connected] }));
     }
     if (errCode || connected || hasUtm) {
       history.replaceState(null, '', '/');
