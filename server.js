@@ -59,6 +59,11 @@ const {
   fetchGenerationQids,
   fetchWikipediaCovers,
 } = require('./lib/wikidata');
+const {
+  sanitizeGenerationsAndPlatforms,
+  isVandalizedNintendoExclusive,
+  applyMetadataOverride,
+} = require('./lib/metadata-fixes');
 const { PlaytestedStore } = require('./lib/store');
 const {
   REVIEW_QUESTIONS,
@@ -1188,6 +1193,7 @@ async function ingestSteamGame(id) {
     trend: TREND[sid] || 0,
     ...details,
   });
+  applyMetadataOverride(g);
   if (store.isPostgres) await store.upsertGame(g).catch(() => {});
   return g;
 }
@@ -2133,7 +2139,43 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 async function repairCatalogDatesOnBoot() {
   const dirty = [];
+  const dirtyIds = new Set();
+  const markDirty = (g) => {
+    const id = String(g.id);
+    if (!dirtyIds.has(id)) {
+      dirtyIds.add(id);
+      dirty.push(g);
+    }
+  };
+
+  // 1. Remove vandalized Nintendo-only entries that have zero reviews
+  const reviewedIds = new Set(db.reviews.map((r) => String(r.gameId)));
+  const removedIds = [];
+  db.games = db.games.filter((g) => {
+    if (!reviewedIds.has(String(g.id)) && isVandalizedNintendoExclusive(g)) {
+      removedIds.push(String(g.id));
+      byId.delete(String(g.id));
+      return false;
+    }
+    return true;
+  });
+
+  // 2. Apply authoritative overrides & strip historically impossible retro console generations
   for (const g of db.games) {
+    if (applyMetadataOverride(g)) {
+      g.canonicalKey = normalizeTitle(g.name);
+      markDirty(g);
+    }
+
+    if (Array.isArray(g.generations) && g.generations.length) {
+      const cleaned = sanitizeGenerationsAndPlatforms(g.platforms, g.generations, g.date);
+      if (cleaned.changed) {
+        g.platforms = cleaned.platforms;
+        g.generations = cleaned.generations;
+        markDirty(g);
+      }
+    }
+
     const key = normalizeTitle(g.name) || g.canonicalKey || '';
     const known = KNOWN_TITLE_METADATA[key];
     const isConsolePlaceholder =
@@ -2167,7 +2209,7 @@ async function repairCatalogDatesOnBoot() {
       }
       if (changed) {
         g.canonicalKey = normalizeTitle(g.name);
-        dirty.push(g);
+        markDirty(g);
       }
       continue;
     }
@@ -2197,16 +2239,67 @@ async function repairCatalogDatesOnBoot() {
       }
       if (changed) {
         g.canonicalKey = normalizeTitle(g.name);
-        dirty.push(g);
+        markDirty(g);
       }
     }
   }
 
-  if (dirty.length) {
-    console.log(`Repaired release dates/metadata for ${dirty.length} catalog record(s).`);
+  if (dirty.length || removedIds.length) {
+    console.log(
+      `Repaired metadata for ${dirty.length} catalog record(s)${removedIds.length ? ` and removed ${removedIds.length} invalid console-exclusive record(s)` : ''}.`
+    );
     save();
     if (store.isPostgres) {
-      await store.upsertGamesBatch(dirty).catch((err) => console.warn('Date repair DB save skipped:', err.message));
+      for (const rid of removedIds) {
+        await store.deleteGame(rid).catch(() => {});
+      }
+      if (dirty.length) {
+        await store.upsertGamesBatch(dirty).catch((err) => console.warn('Date repair DB save skipped:', err.message));
+      }
+    }
+  }
+}
+
+// Background pass to restore exact Steam release dates on 2019+ Steam games whose date was
+// previously overwritten by a Wikidata year-only YYYY-01-01 placeholder (e.g. Avowed, Delta Force).
+async function repairJan1SteamDatesBackground() {
+  if (NO_SYNC) return;
+  const targets = db.games
+    .filter(
+      (g) =>
+        /^\d+$/.test(String(g.id)) &&
+        String(g.date || '').endsWith('-01-01') &&
+        Number(String(g.date || '').slice(0, 4)) >= 2019
+    )
+    .sort((a, b) => (b.trend || 0) - (a.trend || 0))
+    .slice(0, 120);
+  if (!targets.length) return;
+
+  const fixed = [];
+  for (const g of targets) {
+    try {
+      const det = await fetchSteamDetails(String(g.id));
+      if (det && isIsoDate(det.date) && !det.date.endsWith('-01-01') && det.date <= todayIso()) {
+        g.date = det.date;
+        if (Array.isArray(g.generations) && g.generations.length) {
+          const cleaned = sanitizeGenerationsAndPlatforms(g.platforms, g.generations, g.date);
+          g.platforms = cleaned.platforms;
+          g.generations = cleaned.generations;
+        }
+        applyMetadataOverride(g);
+        fixed.push(g);
+      }
+    } catch {
+      // Skip transient Steam API failures
+    }
+    await sleep(320);
+  }
+
+  if (fixed.length) {
+    console.log(`[metadata-repair] Restored exact Steam launch dates for ${fixed.length}/${targets.length} game(s).`);
+    save();
+    if (store.isPostgres) {
+      await store.upsertGamesBatch(fixed).catch((err) => console.warn('[metadata-repair] DB save failed:', err.message));
     }
   }
 }
@@ -2529,6 +2622,9 @@ function startDailyIndexScheduler() {
   setTimeout(() => {
     repairBrokenCoversBackground().catch((err) => console.warn('[cover-repair] Skipped:', err.message));
   }, 5000);
+  setTimeout(() => {
+    repairJan1SteamDatesBackground().catch((err) => console.warn('[metadata-repair] Skipped:', err.message));
+  }, 9000);
   const tick = () => {
     const st = ensureIndexState();
     if (st.addedToday < DAILY_INDEX_LIMIT || st.dailyReleasesDate !== todayIso()) {
@@ -2560,9 +2656,8 @@ async function startServer() {
     }
   }
 
-  await repairCatalogDatesOnBoot();
-
   const enrichedCount = enrichMultiplatformCatalog(db, byId, upsertCanonicalGame);
+  await repairCatalogDatesOnBoot();
   if (deduped.mergedCount > 0 || enrichedCount > 0) {
     console.log(
       `Catalog normalized: ${deduped.mergedCount} duplicate(s) merged, ${enrichedCount} multi-platform record(s) enriched.`
