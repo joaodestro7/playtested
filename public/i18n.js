@@ -2,14 +2,15 @@
   'use strict';
 
   const STORAGE_KEY = 'playtested_lang';
-  const SUPPORTED = ['en', 'pt-BR'];
+  const SUPPORTED = ['en', 'pt-BR', 'es'];
 
   const LANGUAGES = [
     { code: 'en', label: 'English', short: 'EN', locale: 'en-US' },
     { code: 'pt-BR', label: 'Português (BR)', short: 'PT', locale: 'pt-BR' },
+    { code: 'es', label: 'Español', short: 'ES', locale: 'es-ES' },
   ];
 
-  // Crisp inline SVGs (Windows browsers render flag emojis as plain "US"/"BR" text)
+  // Crisp inline SVGs (Windows browsers render flag emojis as plain "US"/"BR"/"ES" text)
   const FLAGS = {
     en:
       '<svg class="lang-flag-svg" viewBox="0 0 24 16" aria-hidden="true">' +
@@ -38,6 +39,19 @@
       '<polygon points="12,1.8 22,8 12,14.2 2,8" fill="#FFDF00"/>' +
       '<circle cx="12" cy="8" r="3.6" fill="#002776"/>' +
       '<path d="M8.55 7.45c2.2-0.75 4.8-0.35 6.85 1.15" fill="none" stroke="#FFFFFF" stroke-width="0.72" stroke-linecap="round"/>' +
+      '</svg>',
+    es:
+      '<svg class="lang-flag-svg" viewBox="0 0 24 16" aria-hidden="true">' +
+      '<rect width="24" height="16" fill="#AA151B"/>' +
+      '<rect y="4" width="24" height="8" fill="#F1BF00"/>' +
+      '<g transform="translate(5.2, 5.4)">' +
+      '<rect x="0.8" y="0.9" width="2.8" height="3.2" rx="0.9" fill="#AA151B"/>' +
+      '<rect x="2.2" y="0.9" width="1.4" height="1.6" fill="#F1BF00"/>' +
+      '<rect x="0.8" y="2.5" width="1.4" height="1.6" fill="#F1BF00"/>' +
+      '<rect x="0" y="1.1" width="0.55" height="2.8" fill="#B8860B"/>' +
+      '<rect x="3.85" y="1.1" width="0.55" height="2.8" fill="#B8860B"/>' +
+      '<path d="M1.1 0.85h2.2l-0.35-0.65h-1.5z" fill="#AA151B"/>' +
+      '</g>' +
       '</svg>',
   };
 
@@ -891,6 +905,433 @@
         'A conexão com o Xbox Live está indisponível neste servidor no momento. Tente novamente mais tarde.',
       'toast.connected': '{platform} conectado! Agora você pode publicar avaliações verificadas.',
     },
+
+    es: {
+      // Meta
+      'meta.title': 'Playtested — Reseñas Reales de Gamers Reales',
+      'meta.description':
+        'Puntuaciones independientes de 0 a 100 para Steam, PlayStation y Xbox — mismo peso por propietario verificado, estrictamente separadas por plataforma y cero notas de críticos.',
+
+      // Header & Navigation
+      'skip.content': 'Ir al contenido',
+      'nav.aria': 'Navegación principal',
+      'nav.homeAria': 'Inicio de Playtested',
+      'nav.discover': 'Explorar',
+      'nav.reviews': 'Reseñas',
+      'nav.library': 'Biblioteca',
+      'search.aria': 'Buscar juegos',
+      'search.placeholder': 'Buscar juegos...',
+      'search.clear': 'Limpiar búsqueda',
+      'theme.aria': 'Cambiar modo oscuro',
+      'theme.title': 'Cambiar entre tema claro y oscuro',
+      'lang.aria': 'Seleccionar idioma',
+      'lang.title': 'Cambiar idioma',
+      'auth.signIn': 'Entrar',
+      'auth.signOut': 'Salir',
+      'auth.manageTitle': 'Gestionar cuentas conectadas de Steam, PlayStation y Xbox',
+      'auth.connectedPlatsAria': 'Plataformas conectadas',
+
+      // Hero
+      'hero.eyebrow': 'SOLO PROPIETARIOS VERIFICADOS · CERO CRÍTICOS',
+      'hero.h1Html': 'Reseñas Reales<br /><em>de Gamers Reales</em>',
+      'hero.sub':
+        'Puntuaciones independientes de 0 a 100 para Steam, PlayStation y Xbox — cada propietario verificado cuenta por igual, sin mezclar plataformas. Conecta tus cuentas para puntuar juegos que realmente tienes y jugaste.',
+      'hero.browse': 'Ver catálogo',
+      'hero.signInCta': 'Entrar para puntuar',
+      'hero.openLibrariesCta': 'Abrir bibliotecas',
+      'hero.statsAria': 'Estadísticas de la plataforma',
+      'hero.statGames': 'Juegos indexados',
+      'hero.statReviews': 'Reseñas verificadas',
+      'hero.statHours': 'Horas registradas',
+      'hero.statCritics': 'Notas de críticos',
+      'hero.release2026': 'ESTRENO 2026',
+      'hero.openFeaturedAria': 'Abrir juego destacado {name}',
+      'hero.showSlideAria': 'Mostrar {name}',
+      'hero.artworkControlsAria': 'Controles de destacados',
+
+      // Trust Strip
+      'trust.aria': 'Principios de Playtested',
+      'trust.lead': 'PROPIEDAD VERIFICADA. SIEMPRE.',
+      'trust.item1': 'Solo dueños verificados',
+      'trust.item2': '2h+ de juego verificadas',
+      'trust.item3': 'Notas 0–100 de peso igual',
+      'trust.item4': 'Sin notas de críticos. Nunca.',
+
+      // Spotlight
+      'spotlight.eyebrow': 'RECIÉN SALIDO DE BIBLIOTECAS VERIFICADAS',
+      'spotlight.titleHtml': 'Reseñados recientemente<span class="accent-dot">.</span>',
+      'spotlight.allReviews': 'Ver todas las reseñas',
+      'spotlight.isolatedTip': 'Nota aislada en {platform}',
+      'spotlight.verifiedReviewOne': '{n} reseña verificada',
+      'spotlight.verifiedReviewMany': '{n} reseñas verificadas',
+      'spotlight.hoursPlayed': '{hours}h jugadas',
+
+      // Catalog & Filters
+      'catalog.eyebrow': 'EL CATÁLOGO VERIFICADO',
+      'catalog.loading': 'Cargando catálogo…',
+      'catalog.filters': 'Filtros',
+      'catalog.filtersAria': 'Filtros del catálogo',
+      'catalog.closeFilters': 'Cerrar filtros',
+      'catalog.sortBy': 'Ordenar por',
+      'catalog.sort.trend': 'Tendencia',
+      'catalog.sort.new': 'Más recientes',
+      'catalog.sort.top': 'Mejor valorados',
+      'catalog.sort.most': 'Más reseñados',
+      'catalog.sort.old': 'Más antiguos',
+      'catalog.sort.az': 'Nombre A a Z',
+      'catalog.sort.za': 'Nombre Z a A',
+      'catalog.title.trend': 'En tendencia ahora',
+      'catalog.title.new': 'Estrenos recientes',
+      'catalog.title.old': 'Lanzamientos antiguos',
+      'catalog.title.top': 'Mejor valorados',
+      'catalog.title.most': 'Más reseñados',
+      'catalog.title.az': 'Juegos de A a Z',
+      'catalog.title.za': 'Juegos de Z a A',
+      'catalog.title.default': 'Catálogo',
+      'catalog.title.search': 'Resultados para “{q}”',
+      'catalog.releaseYear': 'Año de lanzamiento',
+      'catalog.from': 'Desde',
+      'catalog.to': 'Hasta',
+      'catalog.fromAria': 'Año de lanzamiento inicial',
+      'catalog.toAria': 'Año de lanzamiento final',
+      'catalog.developer': 'Desarrolladora',
+      'catalog.devPlaceholder': 'ej. FromSoftware',
+      'catalog.publisher': 'Editora',
+      'catalog.pubPlaceholder': 'ej. Valve',
+      'catalog.minScore': 'Nota mínima (0–100)',
+      'catalog.minScorePlaceholder': 'ej. 75',
+      'catalog.avgPlaytime': 'Tiempo medio de juego',
+      'catalog.playtime.all': 'Todos',
+      'catalog.playtime.low': 'Corto (≤ 80h)',
+      'catalog.playtime.medium': 'Medio (80.1h – 200h)',
+      'catalog.playtime.high': 'Alto (200.1h – 1.500h)',
+      'catalog.playtime.second_job': 'Segundo Trabajo (1.500h+)',
+      'catalog.onlyReviewed': 'Solo juegos con reseñas verificadas',
+      'catalog.resetFilters': 'Limpiar filtros',
+      'catalog.resetAllFilters': 'Limpiar todos los filtros',
+      'catalog.filterPlatAria': 'Filtrar por plataforma',
+      'catalog.all': 'Todos',
+      'catalog.quickSortAria': 'Orden rápido',
+      'catalog.perPageAria': 'Juegos por página',
+      'catalog.perPage': '{n} por página',
+      'catalog.paginationAria': 'Paginación del catálogo',
+      'catalog.countLine':
+        '{total} {gameWord} encontrados · {indexed}{knownPart} títulos multiplataforma indexados y unificados.',
+      'catalog.knownPart': ' de {known}',
+      'catalog.gameOne': 'juego único',
+      'catalog.gameMany': 'juegos únicos',
+      'catalog.emptyTitle': 'Ningún juego coincide con estos filtros.',
+      'catalog.emptyBody':
+        'Prueba ampliando el rango de años, limpiando filtros de desarrolladora o buscando otro título.',
+      'catalog.indexingTitle': 'Indexando catálogo…',
+      'catalog.indexingBody':
+        'Playtested está validando portadas y organizando los metadatos en segundo plano.',
+      'catalog.loadErrorTitle': 'No se pudo cargar el catálogo',
+      'catalog.loadErrorFallback': 'Comprueba tu conexión e inténtalo de nuevo.',
+      'catalog.retry': 'Reintentar',
+      'catalog.peakTitle': 'Pico de jugadores simultáneos esta semana',
+      'catalog.hoverCta': 'Ver y puntuar →',
+      'catalog.reviewOne': 'reseña',
+      'catalog.reviewMany': 'reseñas',
+      'catalog.prev': '← Anterior',
+      'catalog.next': 'Siguiente →',
+      'catalog.page': 'Página',
+      'catalog.ofPages': 'de {pages}',
+      'catalog.jumpPageAria': 'Ir a la página',
+
+      // Active Filter Pills
+      'pill.search': 'Búsqueda: “{q}”',
+      'pill.platform': 'Plataforma: {platform}',
+      'pill.year': 'Año: {from} – {to}',
+      'pill.any': 'Cualquiera',
+      'pill.dev': 'Dev: {dev}',
+      'pill.pub': 'Pub: {pub}',
+      'pill.min': 'Nota ≥ {min}',
+      'pill.playtime': 'Tiempo: {label}',
+      'pill.reviewed': 'Solo reseñados',
+      'pill.removeAria': 'Quitar filtro',
+
+      // Score Trio Tooltips
+      'score.tip': 'Nota en {platform}: {score}/100 de {n} {reviewWord}{avgPart}',
+      'score.tipAvg': ' (media de {hours}h jugadas)',
+      'score.tipNone': '{platform}: sin reseñas verificadas aún',
+      'cover.alt': 'Portada de {name}',
+
+      // Editorial Banner
+      'banner.eyebrow': 'TU TIEMPO ES VALIOSO. TUS HORAS LO DEMUESTRAN.',
+      'banner.h3Html': 'Notas honestas de quienes <em>realmente jugaron.</em>',
+      'banner.p':
+        'Conecta tu cuenta de Steam, PlayStation o Xbox para sumar tu voz — una reseña verificada por plataforma, editable cuando quieras.',
+      'banner.ctaGuest': 'Conectar cuentas',
+      'banner.ctaUser': 'Gestionar cuentas y puntuar',
+
+      // Reviews Feed
+      'reviews.eyebrow': 'SIN CRÍTICOS. SIN HYPE PAGADO.',
+      'reviews.titleHtml': 'Reseñas verificadas<span class="accent-dot">.</span>',
+      'reviews.loading': 'Cargando reseñas verificadas…',
+      'reviews.loadingPlayer': 'Cargando reseñas de jugadores verificados…',
+      'reviews.filterPlatAria': 'Filtrar reseñas por plataforma',
+      'reviews.sortAria': 'Ordenar reseñas',
+      'reviews.sort.recent': 'Más recientes',
+      'reviews.sort.hours': 'Más horas jugadas',
+      'reviews.sort.high': 'Mayor nota',
+      'reviews.sort.low': 'Menor nota',
+      'reviews.countLine':
+        '{total} {reviewWord} de propietarios verificados{scope}. Cada nota se mantiene aislada en su plataforma.',
+      'reviews.scopePlatform': ' en {platform}',
+      'reviews.scopeAll': ' entre Steam, PlayStation y Xbox',
+      'reviews.emptyTitle': 'Aún no hay reseñas verificadas en esta plataforma.',
+      'reviews.emptyBody':
+        'Conecta tu cuenta de Steam, PlayStation o Xbox para publicar la primera puntuación verificada aquí.',
+      'reviews.verifiedTitle': 'Título verificado',
+      'reviews.verifiedScoreTitle': 'Nota verificada en {platform}',
+      'reviews.scoreOnly': 'Puntuación verificada sin texto.',
+      'reviews.classicPill': '✦ Era Clásica',
+      'reviews.verifiedPill': '✓ Verificado',
+      'reviews.youPill': 'Tú',
+      'reviews.legacyTitle': 'Clásico verificado por cuenta en {platform}',
+      'reviews.playtimeTitle': 'Tiempo de juego verificado en {platform}',
+      'reviews.classicFallback': 'Clásico',
+      'reviews.loadErrorTitle': 'No se pudieron cargar las reseñas',
+
+      // My Library
+      'library.eyebrow': 'TUS JUEGOS VERIFICADOS',
+      'library.titleHtml': 'Mis bibliotecas conectadas<span class="accent-dot">.</span>',
+      'library.desc':
+        'Conecta Steam, PlayStation o Xbox para explorar tus juegos y publicar notas por plataforma (mínimo 2h).',
+      'library.manageBtn': 'Gestionar cuentas conectadas',
+      'library.connectTitle': 'Conecta tus cuentas de juegos',
+      'library.connectBody':
+        'Vincula Steam, PlayStation o Xbox para que Playtested verifique qué juegos posees y tu tiempo real de juego (2h+ por plataforma). Las notas de cada plataforma permanecen aisladas.',
+      'library.connectSteam': 'Conectar Steam',
+      'library.connectPsn': 'Conectar PlayStation Network',
+      'library.connectXbox': 'Conectar Xbox Live',
+      'library.privacyTipHtml':
+        '<strong>Consejo de privacidad:</strong> Asegúrate de tener la privacidad de tu biblioteca / historial de juegos en <strong>Público / Todos</strong> en tu plataforma para que Playtested pueda verificar propiedad y horas jugadas.',
+      'library.syncing': 'Sincronizando tu biblioteca de {platform}…',
+      'library.refreshedToast': '¡Biblioteca de {platform} actualizada!',
+      'library.errorTitle': 'No se pudo leer tu biblioteca de {platform}',
+      'library.errorFallback': 'Revisa la configuración de privacidad de tu plataforma e inténtalo de nuevo.',
+      'library.tryAgain': 'Intentar de nuevo',
+      'library.tabsAria': 'Seleccionar biblioteca de plataforma conectada',
+      'library.linkPlatform': '+ Vincular {platform}',
+      'library.syncJustNow': 'Sincronizado ahora',
+      'library.syncMinsAgo': 'Sincronizado hace {n} min',
+      'library.syncHoursAgo': 'Sincronizado hace {n}h',
+      'library.refreshTitle': 'Volver a cargar tus juegos y horas más recientes',
+      'library.refreshBtn': '↻ Actualizar biblioteca',
+      'library.statGames': 'Juegos en {platform}',
+      'library.statPlaytime': 'Total jugado en {platform}',
+      'library.statEligible': 'Elegibles ({hours}h+)',
+      'library.statReviewed': 'Reseñados en {platform}',
+      'library.filterPlaceholder': 'Filtrar tus {n} juegos de {platform}…',
+      'library.filterAll': 'Todos',
+      'library.filterReady': 'Listos ({n})',
+      'library.filterReviewed': 'Reseñados ({n})',
+      'library.filterLocked': 'Menos de {hours}h',
+      'library.tagRated': 'Nota · {score}',
+      'library.tagRateOn': 'Puntuar en {platform}',
+      'library.tagNeedHours': 'Faltan {hours}h',
+      'library.rowHours': '{hours}h jugadas en {platform}',
+      'library.emptyTitle': 'No hay juegos coincidentes en tu biblioteca de {platform}',
+      'library.emptyBody': 'Prueba limpiando el filtro o la búsqueda.',
+
+      // Footer
+      'footer.promise':
+        'Cada nota en Playtested proviene de un propietario verificado. No se permiten notas de críticos, nunca.',
+      'footer.audit': 'Auditar código fuente',
+      'footer.coffeeAria': 'Invítame a un café por PayPal',
+      'footer.coffee': 'Invítame a un café',
+      'footer.coffeeUnconfigured': 'El enlace de donación de PayPal aún no está configurado.',
+
+      // Dialog Aria
+      'modal.gameAria': 'Detalles del juego y reseñas verificadas',
+      'modal.authAria': 'Iniciar sesión en Playtested',
+      'modal.confirmAria': 'Confirmar cierre de sesión',
+      'modal.close': 'Cerrar',
+
+      // Logout Confirm Modal
+      'logout.eyebrow': 'SESIÓN DE LA CUENTA',
+      'logout.titleHtml': '¿Salir de Playtested<span class="accent-dot">?</span>',
+      'logout.desc':
+        'Esto cerrará {sessionText} en este dispositivo. Todas tus reseñas verificadas seguirán guardadas.',
+      'logout.sessionLinked': 'tu sesión de {platforms}',
+      'logout.sessionDefault': 'tu sesión de Playtested',
+      'logout.cancel': 'Cancelar',
+
+      // Auth Modal
+      'auth.eyebrow': 'CUENTAS VERIFICADAS',
+      'auth.titleHtml': 'Conecta tus plataformas<span class="accent-dot">.</span>',
+      'auth.desc':
+        'Vincula Steam, PlayStation o Xbox para demostrar la propiedad y 2h+ de juego verificadas. Cada jugador verificado cuenta por igual y las notas por plataforma nunca se mezclan.',
+      'auth.safeTitle': 'Cómo protegemos tu cuenta (100% solo lectura):',
+      'auth.safeItem1Html':
+        '<strong>Sin contraseñas nunca:</strong> Steam inicia sesión directamente en <code>steamcommunity.com</code> mediante OpenID oficial; Xbox usa un código público en la bio de tu Gamertag.',
+      'auth.safeItem2Html':
+        '<strong>Sin tokens almacenados:</strong> los tokens temporales de PSN/OAuth permanecen solo en la RAM del servidor y nunca se guardan en disco ni en base de datos.',
+      'auth.safeItem3Html':
+        '<strong>Públicamente auditable:</strong> <a href="https://github.com/joaodestro7/playtested/blob/main/lib/platforms.js" target="_blank" rel="noopener noreferrer">Inspeccionar código de autenticación (lib/platforms.js) ↗</a>',
+      'auth.steamSub': 'Redirección OpenID oficial en steamcommunity.com · sin compartir contraseña',
+      'auth.psnSub': 'Consulta de biblioteca de solo lectura · token solo en la RAM del servidor',
+      'auth.xboxSub': 'Código público en la bio de Gamertag · cero credenciales introducidas aquí',
+      'auth.connected': '✓ Conectado',
+      'auth.unlink': 'Desvincular',
+      'auth.disconnectTitle': 'Desconectar {platform}',
+      'auth.connect': 'Conectar',
+      'auth.cancel': 'Cancelar',
+      'auth.psnTabBio': 'Código en Bio',
+      'auth.psnTabDirect': 'NPSSO Oficial de PSN',
+      'auth.psnOnlineIdPlaceholder': 'Tu ID Online de PSN',
+      'auth.getCode': 'Obtener código',
+      'auth.psnBioCodeHtml':
+        'Coloca <code>{code}</code> en la bio <strong>Acerca de mí</strong> de PlayStation, guárdalo y pulsa verificar abajo (puedes quitarlo justo después).',
+      'auth.psnVerifyAccount': 'Verificar cuenta PlayStation',
+      'auth.psnDirectStepsHtml':
+        '1. Inicia sesión en <a href="https://www.playstation.com" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">playstation.com</a>.<br>' +
+        '2. Abre la <a href="https://ca.account.sony.com/api/v1/ssocookie" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:underline;">página de cookie SSO de Sony</a> y copia el valor <code>npsso</code>.<br>' +
+        '3. Pégalo abajo — usado solo en RAM para leer tu lista de juegos y horas, nunca guardado en disco.',
+      'auth.psnNpssoPlaceholder': 'Pega el valor npsso de 64 caracteres…',
+      'auth.psnVerifyLibrary': 'Verificar biblioteca PlayStation',
+      'auth.xboxGamertagPlaceholder': 'Tu Gamertag de Xbox',
+      'auth.xboxBioCodeHtml':
+        'Coloca <code>{code}</code> en la <strong>Bio</strong> de tu perfil Xbox, guárdalo y pulsa verificar abajo (puedes quitarlo justo después).',
+      'auth.xboxVerifyAccount': 'Verificar cuenta Xbox',
+      'auth.notePrivacyHtml':
+        '<strong>Auditable y Solo Lectura:</strong> Playtested nunca pide tus contraseñas ni modifica tus cuentas. Asegúrate de tener la privacidad de tu biblioteca/historial en <strong>Público</strong> en Steam, PlayStation o Xbox para verificar propiedad y horas jugadas.',
+      'auth.noteUnavailableHtml':
+        '<strong>Epic Games Store y Nintendo no disponibles por ahora:</strong> Ni Epic Games ni Nintendo ofrecen una API pública como la de Steam para verificar bibliotecas y tiempo de juego. No pediremos códigos con acceso completo a tu cuenta, así que el soporte queda en espera hasta que existan APIs públicas seguras.',
+      'auth.statusGenerating': 'Generando código de verificación…',
+      'auth.statusGenError': 'No se pudo generar el código.',
+      'auth.statusPsnCheckingBio': 'Comprobando la bio de tu perfil PlayStation…',
+      'auth.statusVerifyFail': 'Error en la verificación.',
+      'auth.statusPsnConnected': '¡PlayStation Network conectada!',
+      'auth.statusPsnVerifying': 'Verificando cuenta PlayStation…',
+      'auth.statusPsnNpssoError': 'No se pudo verificar el token NPSSO.',
+      'auth.statusXboxCheckingBio': 'Comprobando la bio de tu perfil Xbox…',
+      'auth.statusXboxConnected': '¡Xbox Live conectado!',
+      'auth.unlinkedToast': 'Cuenta de {platform} desvinculada.',
+
+      // Game Modal
+      'game.fallbackName': 'Juego #{id}',
+      'game.unknownYear': 'Desconocido',
+      'game.developer': 'Desarrolladora:',
+      'game.publisher': 'Editora:',
+      'game.systems': 'Sistemas:',
+      'game.released': 'Lanzamiento:',
+      'game.peakPlayers': 'pico de jugadores esta semana',
+      'game.notReleasedOn': 'No lanzado en {platform}',
+      'game.noVerifiedReviews': 'Sin reseñas verificadas',
+      'game.classicEraShort': 'Era clásica',
+      'game.avgHoursShort': 'media {hours}h',
+      'game.scoreBreakdown': 'Desglose de nota ({platform})',
+      'game.totalAvg': 'Media total:',
+      'game.classicVerified': 'Era Clásica · cuenta verificada',
+      'game.medianAvgHours': 'Mediana {median}h · Media {avg}h jugadas',
+      'game.noRatingsYet': 'Aún sin puntuaciones verificadas',
+      'game.criteriaGridAria': 'Promedios en los 4 criterios para {platform}',
+      'game.distAria': 'Distribución de notas en {platform}',
+      'game.distPositive': 'Positivas (75–100): {n}',
+      'game.distMixed': 'Mixtas (50–74): {n}',
+      'game.distNegative': 'Negativas (0–49): {n}',
+      'game.spikeHtml':
+        '<strong>Alta actividad reciente:</strong> Hay propietarios verificados reseñando este juego ahora mismo. Todas las notas mantienen el mismo peso y siguen aisladas por plataforma.',
+      'game.choosePlatAria': 'Elegir plataforma para reseñar',
+      'game.editReviewTitle': 'Editar reseña en {platform}',
+      'game.rateOnTitle': 'Puntuar en {platform}',
+      'game.classicPillFull': '✦ Era Clásica ({era}) · Cuenta verificada',
+      'game.checkingLib': 'Comprobando biblioteca de {platform}…',
+      'game.refreshingLib': 'Actualizando biblioteca de {platform}…',
+      'game.refreshLibBtn': '↻ Actualizar biblioteca {platform}',
+      'game.refreshLibError': 'No se pudo actualizar la biblioteca ahora mismo.',
+      'game.eligConnect': 'Conecta {platform} para puntuar',
+      'game.eligUnavailable': 'Verificación no disponible',
+      'game.eligNotOwned': 'No está en tu biblioteca de {platform}',
+      'game.eligNotOwnedMsg':
+        'Debes tener este juego en {platform} (con {hours}h+ jugadas) para poder reseñarlo.',
+      'game.eligNeedMore': '{played}h jugadas · Necesitas {min}h+',
+      'game.eligNeedMoreMsg': 'Juega al menos {more}h más en {platform} para desbloquear la reseña.',
+      'game.eligVerified': '✓ Dueño verificado en {platform} · {hours}h jugadas',
+      'game.legacyBannerHtml':
+        '<strong>Reseña de Era Clásica:</strong> {reason}. Se omite la comprobación de biblioteca y horas para este clásico, pero sigue siendo obligatorio iniciar sesión en {platform} (una reseña por cuenta).',
+      'game.isolationNoteHtml':
+        'Se suma exclusivamente a la nota de <strong>{platform}</strong> — nunca mezclada con otras plataformas.',
+      'game.legacyMigrateHtml':
+        'Tu reseña anterior tiene una nota de <strong>{score}</strong>. Responde a las 4 preguntas obligatorias abajo para actualizarla.',
+      'game.qPrefix': 'P{num}',
+      'game.qTipAria': 'Ayuda para {label}',
+      'game.qScaleAria': '{label} (de 0 a 10)',
+      'game.finalScore': 'Nota Final',
+      'game.calculatedSub': 'Calculada a partir de tus 4 respuestas',
+      'game.incompleteSub': 'Responde a las 4 preguntas obligatorias ({n}/4 respondidas)',
+      'game.incomplete': 'Incompleto',
+      'game.textareaPlaceholder': 'Comparte tu experiencia honesta jugando en {platform} (opcional)…',
+      'game.deleteReview': 'Eliminar reseña',
+      'game.updateReview': 'Actualizar reseña ({platform})',
+      'game.publishReview': 'Publicar reseña ({platform})',
+      'game.requiresAccount': '{name} requiere una cuenta de {platform}',
+      'game.haveYouPlayed': '¿Has jugado a {name}?',
+      'game.connectLinkedPrompt':
+        'Solo puedes reseñar juegos en las plataformas donde se lanzaron. Conecta tu cuenta de {platform} para puntuar este {target}.',
+      'game.targetClassic': 'clásico de {era} (sin comprobación de biblioteca)',
+      'game.targetTitle': 'título de {platform}',
+      'game.connectGuestClassic':
+        'Inicia sesión con {platform} para puntuar este clásico de {era}. Se omiten las comprobaciones de biblioteca y horas en clásicos pre-API, pero el acceso con cuenta sigue siendo obligatorio.',
+      'game.connectGuestNormal':
+        'Conecta {platforms} para verificar la propiedad y 2h+ de juego. La nota de cada plataforma se calcula por separado.',
+      'game.orWord': 'o',
+      'game.connectPlatformBtn': 'Conectar {platform}',
+      'game.modalReviewsTitle': 'Reseñas de jugadores verificados ({count})',
+      'game.sortGameReviewsAria': 'Ordenar reseñas del juego',
+      'game.sortNewestFirst': 'Más recientes primero',
+      'game.loadingReviews': 'Cargando reseñas…',
+      'game.noReviewsInModal':
+        'Aún no hay reseñas verificadas. Sé el primer propietario con 2h+ jugadas en puntuarlo.',
+      'game.loadReviewsError': 'No se pudieron cargar las reseñas: {msg}',
+      'game.reviewLegacyMeta': '{era} verificado por cuenta en {icon} {platform}',
+      'game.reviewPlayedMeta': '{hours}h jugadas en {icon} {platform}',
+      'game.editedSuffix': ' · editada',
+      'game.answerAllErr': 'Responde a las 4 preguntas obligatorias (0–10) antes de publicar.',
+      'game.verifyingSubmit': 'Verificando tu biblioteca y horas de juego en {platform}…',
+      'game.saveError': 'No se pudo guardar la reseña.',
+      'game.networkError': 'Error de red.',
+      'game.updatedToast': '¡Reseña verificada en {platform} actualizada! ({score}/100)',
+      'game.publishedToast': '¡Reseña verificada en {platform} publicada! ({score}/100)',
+      'game.deletedToast': 'Tu reseña en {platform} fue eliminada.',
+      'game.breakdownAria': 'Desglose de puntuación',
+
+      // 4 Review Questions (weights never displayed)
+      'q.fun.label': '¿Es divertido el juego?',
+      'q.fun.short': 'Diversión',
+      'q.fun.tip':
+        'Los juegos existen sobre todo para divertirnos, así que indica cuánto disfrutaste tu tiempo en este juego.',
+      'q.performance.label': '¿El rendimiento del juego es bueno?',
+      'q.performance.short': 'Rendimiento',
+      'q.performance.tip': 'Ten en cuenta los requisitos mínimos y recomendados.',
+      'q.gameplay.label': '¿El gameplay loop es bueno?',
+      'q.gameplay.short': 'Gameplay',
+      'q.gameplay.tip': 'Valora las premisas y mecánicas principales y lo adictivas que resultan.',
+      'q.visuals.label': '¿El juego se ve bien?',
+      'q.visuals.short': 'Gráficos',
+      'q.visuals.tip':
+        'Recuerda que la dirección de arte puede ser pixel art y aun así verse increíble dentro de ese estilo.',
+
+      // Verdicts
+      'verdict.essential': 'Imprescindible',
+      'verdict.great': 'Excelente',
+      'verdict.good': 'Bueno',
+      'verdict.mixed': 'Mixto',
+      'verdict.rough': 'Flojo',
+      'verdict.poor': 'Malo',
+
+      // System / Boot Toasts
+      'toast.offline': 'Parece que estás sin conexión. Reconéctate para cargar novedades o publicar reseñas.',
+      'toast.online': '¡De nuevo en línea!',
+      'toast.steamLoginFail': 'Error al iniciar sesión con Steam. Inténtalo de nuevo.',
+      'toast.xboxLoginFail': 'Error al iniciar sesión con Xbox. Inténtalo de nuevo.',
+      'toast.xboxConfigUnavailable':
+        'La conexión con Xbox Live no está disponible en este servidor ahora mismo. Inténtalo más tarde.',
+      'toast.connected': '¡{platform} conectado! Ya puedes publicar reseñas verificadas.',
+    },
   };
 
   function normalizeLang(raw) {
@@ -899,6 +1340,7 @@
     if (SUPPORTED.includes(trimmed)) return trimmed;
     const lower = trimmed.toLowerCase();
     if (lower === 'pt' || lower.startsWith('pt-')) return 'pt-BR';
+    if (lower === 'es' || lower.startsWith('es-')) return 'es';
     if (lower === 'en' || lower.startsWith('en-')) return 'en';
     return null;
   }
